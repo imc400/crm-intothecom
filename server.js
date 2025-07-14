@@ -490,6 +490,23 @@ app.post('/api/events/:eventId', async (req, res) => {
   const { summary, description, attendees, notes, start, end } = req.body;
   
   try {
+    if (!oAuth2Client) {
+      return res.status(500).json({
+        success: false,
+        error: 'Google Calendar client not configured'
+      });
+    }
+    
+    if (!storedTokens) {
+      return res.status(401).json({
+        success: false,
+        error: 'Google Calendar not authenticated'
+      });
+    }
+    
+    // Set credentials to ensure they're current
+    oAuth2Client.setCredentials(storedTokens);
+    
     const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
     
     // Get current event
@@ -513,7 +530,7 @@ app.post('/api/events/:eventId', async (req, res) => {
       updateData.end = end;
     }
     
-    console.log('Updating event with data:', updateData);
+    console.log('Updating event with data:', JSON.stringify(updateData, null, 2));
     
     const response = await calendar.events.update({
       calendarId: 'primary',
@@ -541,10 +558,24 @@ app.post('/api/events/:eventId', async (req, res) => {
     });
   } catch (error) {
     console.error('Error updating event:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update event: ' + error.message
-    });
+    console.error('Error details:', error.response?.data || error.message);
+    
+    if (error.code === 401 || error.code === 403) {
+      // Clear expired tokens
+      storedTokens = null;
+      if (oAuth2Client) {
+        oAuth2Client.setCredentials({});
+      }
+      res.status(401).json({
+        success: false,
+        error: 'Google Calendar authentication expired'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to update event: ' + (error.response?.data?.error?.message || error.message)
+      });
+    }
   }
 });
 
@@ -2641,8 +2672,16 @@ app.get('/', (req, res) => {
               alert('Por favor ingresa las horas de inicio y fin');
               return;
             }
-            start = { dateTime: startDate + 'T' + startTime + ':00' };
-            end = { dateTime: startDate + 'T' + endTime + ':00' };
+            // Add timezone to avoid Google Calendar API error
+            const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+            start = { 
+              dateTime: startDate + 'T' + startTime + ':00',
+              timeZone: timezone
+            };
+            end = { 
+              dateTime: startDate + 'T' + endTime + ':00',
+              timeZone: timezone
+            };
           }
           
           try {
