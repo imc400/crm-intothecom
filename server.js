@@ -243,13 +243,35 @@ app.get('/api/auth/google/callback', async (req, res) => {
 });
 
 // Check authentication status
-app.get('/api/auth/status', (req, res) => {
-  const isAuthenticated = !!(oAuth2Client && storedTokens);
-  res.json({
-    success: true,
-    authenticated: isAuthenticated,
-    message: isAuthenticated ? 'Google Calendar conectado' : 'Google Calendar desconectado'
-  });
+app.get('/api/auth/status', async (req, res) => {
+  try {
+    const isAuthenticated = !!(oAuth2Client && storedTokens);
+    
+    if (isAuthenticated) {
+      // Verify tokens are still valid by making a test request
+      const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+      await calendar.calendarList.list({ maxResults: 1 });
+    }
+    
+    res.json({
+      success: true,
+      authenticated: isAuthenticated,
+      message: isAuthenticated ? 'Google Calendar conectado' : 'Google Calendar desconectado'
+    });
+  } catch (error) {
+    // Tokens are invalid or expired
+    console.error('Auth verification failed:', error);
+    storedTokens = null;
+    if (oAuth2Client) {
+      oAuth2Client.setCredentials({});
+    }
+    
+    res.json({
+      success: true,
+      authenticated: false,
+      message: 'Google Calendar desconectado'
+    });
+  }
 });
 
 // Google Calendar Events endpoint
@@ -847,11 +869,8 @@ app.get('/', (req, res) => {
                 </div>
                 <div class="calendar-grid">
                   <div class="auth-prompt">
-                    <h3>Conecta tu Google Calendar</h3>
-                    <p>Autoriza el acceso a tu calendario para ver y gestionar eventos</p>
-                    <button class="btn btn-primary" onclick="authenticateGoogle()" style="margin-top: 20px;">
-                      Conectar Google Calendar
-                    </button>
+                    <h3>Verificando conexión...</h3>
+                    <p>Comprobando estado de Google Calendar</p>
                   </div>
                 </div>
               </div>
@@ -940,6 +959,11 @@ app.get('/', (req, res) => {
             
             if (result.success && result.authenticated) {
               updateAuthButton(true);
+              // Load calendar events automatically if authenticated
+              const activeTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab');
+              if (activeTab === 'calendar') {
+                loadCalendarEvents();
+              }
             } else {
               updateAuthButton(false);
             }
@@ -957,11 +981,33 @@ app.get('/', (req, res) => {
             authButton.innerHTML = '<div class="connection-status connected">✓ Conectado</div>';
           } else {
             authButton.innerHTML = '<button class="btn btn-primary" onclick="authenticateGoogle()">Conectar Google</button>';
+            // Also update calendar grid to show connection prompt
+            const calendarGrid = document.querySelector('.calendar-grid');
+            if (calendarGrid && document.querySelector('.nav-item.active')?.getAttribute('data-tab') === 'calendar') {
+              calendarGrid.innerHTML = `
+                <div class="auth-prompt">
+                  <h3>Conecta tu Google Calendar</h3>
+                  <p>Autoriza el acceso a tu calendario para ver y gestionar eventos</p>
+                  <button class="btn btn-primary" onclick="authenticateGoogle()" style="margin-top: 20px;">
+                    Conectar Google Calendar
+                  </button>
+                </div>
+              `;
+            }
           }
         }
 
         // Check auth status on page load
-        document.addEventListener('DOMContentLoaded', checkAuthStatus);
+        document.addEventListener('DOMContentLoaded', () => {
+          checkAuthStatus();
+        });
+        
+        // Also check when tab becomes visible (user returns to tab)
+        document.addEventListener('visibilitychange', () => {
+          if (!document.hidden) {
+            checkAuthStatus();
+          }
+        });
 
         async function loadCalendarEvents(view = 'month') {
           const calendarGrid = document.querySelector('.calendar-grid');
@@ -996,9 +1042,17 @@ app.get('/', (req, res) => {
               }
             } else {
               calendarGrid.innerHTML = '<div class="status error">Error: ' + result.error + '</div>';
+              // If authentication error, update button status
+              if (result.error.includes('Authentication')) {
+                updateAuthButton(false);
+              }
             }
           } catch (error) {
             calendarGrid.innerHTML = '<div class="status error">Error de conexión: ' + error.message + '</div>';
+            // Check if it's an auth error and update button
+            if (error.message.includes('401') || error.message.includes('Authentication')) {
+              updateAuthButton(false);
+            }
           }
         }
 
