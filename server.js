@@ -292,18 +292,18 @@ app.get('/api/calendar/events', async (req, res) => {
     
     switch (view) {
       case 'day':
-        timeMin = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        timeMax = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+        timeMin = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+        timeMax = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
         break;
       case 'week':
         const startOfWeek = new Date(now.getTime() - (now.getDay() * 24 * 60 * 60 * 1000));
-        timeMin = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate());
-        timeMax = new Date(timeMin.getTime() + (7 * 24 * 60 * 60 * 1000));
+        timeMin = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate(), 0, 0, 0);
+        timeMax = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate() + 6, 23, 59, 59);
         break;
       case 'month':
       default:
-        timeMin = new Date(now.getFullYear(), now.getMonth(), 1);
-        timeMax = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        timeMin = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+        timeMax = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
         break;
     }
     
@@ -1184,8 +1184,21 @@ app.get('/', (req, res) => {
           } else if (view === 'month') {
             calendarGrid.innerHTML = renderMonthView(events);
           } else {
-            // Day view (default)
-            calendarGrid.innerHTML = events.map(event => 
+            // Day view - filter events for today only
+            const today = new Date();
+            const todayStr = today.toDateString();
+            
+            const todayEvents = events.filter(event => {
+              const eventDate = new Date(event.start.dateTime || event.start.date);
+              return eventDate.toDateString() === todayStr;
+            });
+            
+            if (todayEvents.length === 0) {
+              calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos hoy</h3><p>No tienes eventos programados para hoy</p></div>';
+              return;
+            }
+            
+            calendarGrid.innerHTML = todayEvents.map(event => 
               '<div class="event-item">' +
                 '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
                 '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
@@ -1202,10 +1215,22 @@ app.get('/', (req, res) => {
         function renderWeekView(events) {
           const weekDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
           
+          // Get current week boundaries
+          const now = new Date();
+          const startOfWeek = new Date(now.getTime() - (now.getDay() * 24 * 60 * 60 * 1000));
+          startOfWeek.setHours(0, 0, 0, 0);
+          const endOfWeek = new Date(startOfWeek.getTime() + (7 * 24 * 60 * 60 * 1000));
+          
+          // Filter events for current week only
+          const weekEvents = events.filter(event => {
+            const eventDate = new Date(event.start.dateTime || event.start.date);
+            return eventDate >= startOfWeek && eventDate < endOfWeek;
+          });
+          
           // Find the earliest event to determine starting hour
           let earliestHour = 24;
-          if (events.length > 0) {
-            earliestHour = Math.min(...events.map(event => {
+          if (weekEvents.length > 0) {
+            earliestHour = Math.min(...weekEvents.map(event => {
               const eventDate = new Date(event.start.dateTime || event.start.date);
               return eventDate.getHours();
             }));
@@ -1235,7 +1260,7 @@ app.get('/', (req, res) => {
               html += '<div class="day-column">';
               
               // Find events for this day and time
-              const dayEvents = events.filter(event => {
+              const dayEvents = weekEvents.filter(event => {
                 const eventDate = new Date(event.start.dateTime || event.start.date);
                 const eventHour = eventDate.getHours();
                 const eventDay = eventDate.getDay();
