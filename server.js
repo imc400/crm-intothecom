@@ -247,21 +247,44 @@ app.get('/api/calendar/events', async (req, res) => {
 
   try {
     const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+    const view = req.query.view || 'month';
     
     const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    let timeMin, timeMax;
+    
+    switch (view) {
+      case 'day':
+        timeMin = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        timeMax = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+        break;
+      case 'week':
+        const startOfWeek = new Date(now.getTime() - (now.getDay() * 24 * 60 * 60 * 1000));
+        timeMin = new Date(startOfWeek.getFullYear(), startOfWeek.getMonth(), startOfWeek.getDate());
+        timeMax = new Date(timeMin.getTime() + (7 * 24 * 60 * 60 * 1000));
+        break;
+      case 'month':
+      default:
+        timeMin = new Date(now.getFullYear(), now.getMonth(), 1);
+        timeMax = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        break;
+    }
     
     const response = await calendar.events.list({
       calendarId: 'primary',
-      timeMin: weekAgo.toISOString(),
-      timeMax: now.toISOString(),
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
       singleEvents: true,
       orderBy: 'startTime',
     });
 
     res.json({
       success: true,
-      data: response.data.items || []
+      data: response.data.items || [],
+      view: view,
+      timeRange: {
+        start: timeMin.toISOString(),
+        end: timeMax.toISOString()
+      }
     });
   } catch (error) {
     console.error('Calendar events error:', error);
@@ -312,7 +335,7 @@ app.get('/', (req, res) => {
         
         .sidebar {
           width: 260px;
-          background: #1a202c;
+          background: #1a1a1a;
           padding: 20px 0;
           position: fixed;
           height: 100vh;
@@ -335,9 +358,9 @@ app.get('/', (req, res) => {
           gap: 10px;
         }
         
-        .logo::before {
-          content: "🚀";
-          font-size: 28px;
+        .logo img {
+          height: 32px;
+          width: auto;
         }
         
         .nav-menu {
@@ -362,8 +385,8 @@ app.get('/', (req, res) => {
         
         .nav-item.active {
           background: #2d3748;
-          color: #4299e1;
-          border-left-color: #4299e1;
+          color: #FF6B00;
+          border-left-color: #FF6B00;
         }
         
         .nav-icon {
@@ -414,12 +437,12 @@ app.get('/', (req, res) => {
         }
         
         .btn-primary {
-          background: #4299e1;
+          background: #FF6B00;
           color: white;
         }
         
         .btn-primary:hover {
-          background: #3182ce;
+          background: #E55A00;
         }
         
         .btn-secondary {
@@ -477,10 +500,21 @@ app.get('/', (req, res) => {
           border-radius: 6px;
           cursor: pointer;
           color: #4a5568;
+          margin-right: 8px;
         }
         
         .calendar-nav button:hover {
           background: #f7fafc;
+        }
+        
+        .view-btn.active {
+          background: #FF6B00;
+          color: white;
+          border-color: #FF6B00;
+        }
+        
+        .view-btn.active:hover {
+          background: #E55A00;
         }
         
         .calendar-grid {
@@ -541,7 +575,7 @@ app.get('/', (req, res) => {
         }
         
         .event-time {
-          color: #4299e1;
+          color: #FF6B00;
           font-weight: 500;
           font-size: 14px;
           margin-bottom: 5px;
@@ -556,6 +590,41 @@ app.get('/', (req, res) => {
         .event-attendees {
           color: #718096;
           font-size: 14px;
+        }
+        
+        .event-actions {
+          margin-top: 10px;
+          display: flex;
+          gap: 8px;
+        }
+        
+        .event-join-btn {
+          background: #FF6B00;
+          color: white;
+          border: none;
+          padding: 6px 12px;
+          border-radius: 4px;
+          font-size: 12px;
+          cursor: pointer;
+          text-decoration: none;
+        }
+        
+        .event-join-btn:hover {
+          background: #E55A00;
+        }
+        
+        .event-details-btn {
+          background: #e2e8f0;
+          color: #4a5568;
+          border: none;
+          padding: 6px 12px;
+          border-radius: 4px;
+          font-size: 12px;
+          cursor: pointer;
+        }
+        
+        .event-details-btn:hover {
+          background: #cbd5e0;
         }
         
         @media (max-width: 768px) {
@@ -581,7 +650,10 @@ app.get('/', (req, res) => {
       <div class="app-container">
         <div class="sidebar">
           <div class="sidebar-header">
-            <div class="logo">IntoTheCom CRM</div>
+            <div class="logo">
+              <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" alt="IntoTheCom">
+              IntoTheCom CRM
+            </div>
           </div>
           <nav class="nav-menu">
             <a href="#" class="nav-item active" data-tab="calendar">
@@ -618,9 +690,10 @@ app.get('/', (req, res) => {
                 <div class="calendar-header">
                   <div class="calendar-title">Mis Eventos</div>
                   <div class="calendar-nav">
-                    <button onclick="loadCalendarEvents()">Cargar Eventos</button>
-                    <button onclick="showTodayEvents()">Hoy</button>
-                    <button onclick="showWeekEvents()">Esta Semana</button>
+                    <button onclick="showDayView()" class="view-btn" data-view="day">Día</button>
+                    <button onclick="showWeekView()" class="view-btn" data-view="week">Semana</button>
+                    <button onclick="showMonthView()" class="view-btn active" data-view="month">Mes</button>
+                    <button onclick="loadCalendarEvents()" class="btn-primary">Cargar Eventos</button>
                   </div>
                 </div>
                 <div class="calendar-grid">
@@ -699,12 +772,12 @@ app.get('/', (req, res) => {
           }
         }
 
-        async function loadCalendarEvents() {
+        async function loadCalendarEvents(view = 'month') {
           const calendarGrid = document.querySelector('.calendar-grid');
           calendarGrid.innerHTML = '<div class="status loading">Cargando eventos...</div>';
           
           try {
-            const response = await fetch('/api/calendar/events');
+            const response = await fetch('/api/calendar/events?view=' + view);
             const result = await response.json();
             
             if (result.success) {
@@ -716,6 +789,10 @@ app.get('/', (req, res) => {
                     '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
                     '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
                     '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
+                    '<div class="event-actions">' +
+                      (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn">🎥 Unirse</a>' : '') +
+                      '<button class="event-details-btn" onclick="showEventDetails(\'' + event.id + '\')">📋 Detalles</button>' +
+                    '</div>' +
                   '</div>'
                 ).join('');
               }
@@ -745,14 +822,32 @@ app.get('/', (req, res) => {
           return names.join(', ') + (attendees.length > 3 ? ' y ' + (attendees.length - 3) + ' más' : '');
         }
 
-        function showTodayEvents() {
-          // Implementation for today's events
-          loadCalendarEvents();
+        function showDayView() {
+          updateViewButtons('day');
+          loadCalendarEvents('day');
         }
 
-        function showWeekEvents() {
-          // Implementation for this week's events
-          loadCalendarEvents();
+        function showWeekView() {
+          updateViewButtons('week');
+          loadCalendarEvents('week');
+        }
+
+        function showMonthView() {
+          updateViewButtons('month');
+          loadCalendarEvents('month');
+        }
+
+        function updateViewButtons(activeView) {
+          document.querySelectorAll('.view-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.getAttribute('data-view') === activeView) {
+              btn.classList.add('active');
+            }
+          });
+        }
+
+        function showEventDetails(eventId) {
+          alert('Detalles del evento: ' + eventId);
         }
 
         function refreshData() {
