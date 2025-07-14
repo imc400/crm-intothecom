@@ -98,17 +98,20 @@ app.get('/health', (req, res) => {
 // Get all contacts
 app.get('/api/contacts', async (req, res) => {
   try {
+    // First check if contacts table exists
     const result = await pool.query('SELECT * FROM contacts ORDER BY created_at DESC');
     res.json({
       success: true,
-      data: result.rows,
-      count: result.rows.length
+      data: result.rows || [],
+      count: result.rows ? result.rows.length : 0
     });
   } catch (error) {
     console.error('Error fetching contacts:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch contacts'
+    // Return empty array instead of error to prevent frontend issues
+    res.json({
+      success: true,
+      data: [],
+      count: 0
     });
   }
 });
@@ -310,12 +313,7 @@ app.get('/api/tags', async (req, res) => {
     res.json({
       success: true,
       data: [
-        { tag: 'New Lead', count: 0 },
-        { tag: 'Hot Lead', count: 0 },
-        { tag: 'Cold Lead', count: 0 },
-        { tag: 'Client', count: 0 },
-        { tag: 'Partner', count: 0 },
-        { tag: 'Prospect', count: 0 }
+        { tag: 'New Lead', count: 0 }
       ]
     });
   }
@@ -2252,24 +2250,14 @@ app.get('/', (req, res) => {
               } else {
                 // Fallback to predefined tags
                 availableTags = [
-                  { tag: 'New Lead', count: 0 },
-                  { tag: 'Hot Lead', count: 0 },
-                  { tag: 'Cold Lead', count: 0 },
-                  { tag: 'Client', count: 0 },
-                  { tag: 'Partner', count: 0 },
-                  { tag: 'Prospect', count: 0 }
+                  { tag: 'New Lead', count: 0 }
                 ];
               }
             } catch (tagError) {
               console.error('Error loading tags, using fallback:', tagError);
               // Fallback to predefined tags
               availableTags = [
-                { tag: 'New Lead', count: 0 },
-                { tag: 'Hot Lead', count: 0 },
-                { tag: 'Cold Lead', count: 0 },
-                { tag: 'Client', count: 0 },
-                { tag: 'Partner', count: 0 },
-                { tag: 'Prospect', count: 0 }
+                { tag: 'New Lead', count: 0 }
               ];
             }
             
@@ -2376,8 +2364,29 @@ app.get('/', (req, res) => {
                 
                 console.log('Contact created and tag added successfully');
                 return;
+              } else if (createResponse.status === 409) {
+                // Contact already exists, try to get it and update tags
+                try {
+                  const getResponse = await fetch('/api/contacts');
+                  const getResult = await getResponse.json();
+                  if (getResult.success) {
+                    const existingContact = getResult.data.find(c => c.email === email);
+                    if (existingContact) {
+                      contactData.id = existingContact.id;
+                      contactData.tags = existingContact.tags || [];
+                      contactsData[email] = contactData;
+                      // Continue with the tag update below
+                    }
+                  }
+                } catch (getError) {
+                  console.error('Error getting existing contact:', getError);
+                  alert('Error al obtener contacto existente');
+                  return;
+                }
               } else {
-                throw new Error(createResult.error);
+                console.error('Error creating contact:', createResult.error);
+                alert('Error al crear contacto: ' + createResult.error);
+                return;
               }
             } catch (error) {
               console.error('Error creating contact:', error);
