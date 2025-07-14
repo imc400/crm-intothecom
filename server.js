@@ -2302,6 +2302,19 @@ app.get('/', (req, res) => {
             contactsList.innerHTML = '<div class="status error">Error: ' + error.message + '</div>';
           }
         }
+        
+        // Debug function - check if all functions are loaded
+        window.addEventListener('load', function() {
+          console.log('Page loaded, checking functions...');
+          console.log('authenticateGoogle exists:', typeof authenticateGoogle);
+          console.log('showStatus exists:', typeof showStatus);
+          console.log('loadCalendarEvents exists:', typeof loadCalendarEvents);
+          
+          // Also check if there are any JavaScript errors
+          window.addEventListener('error', function(e) {
+            console.error('JavaScript error:', e.error);
+          });
+        });
       </script>
     </body>
     </html>
