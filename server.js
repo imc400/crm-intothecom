@@ -1,6 +1,9 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const { google } = require('googleapis');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -138,44 +141,639 @@ app.post('/api/sync', async (req, res) => {
   }
 });
 
-// Basic web interface
+// Google Calendar Authentication
+const SCOPES = ['https://www.googleapis.com/auth/calendar.readonly'];
+let oAuth2Client = null;
+
+// Initialize Google OAuth2 client
+function initializeGoogleAuth() {
+  if (process.env.NODE_ENV === 'production') {
+    // In production, we need to configure OAuth2 with environment variables
+    if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+      oAuth2Client = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        process.env.GOOGLE_REDIRECT_URI || 'https://crm-intothecom-production.up.railway.app/api/auth/google/callback'
+      );
+    }
+  } else {
+    // In development, use the credentials file
+    const CREDENTIALS_PATH = path.join(__dirname, 'client_secret_419586581117-g9jfcu1hk0sr757gkp9cukbu148b90d8.apps.googleusercontent.com.json');
+    if (fs.existsSync(CREDENTIALS_PATH)) {
+      const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
+      const { client_secret, client_id, redirect_uris } = credentials.installed;
+      
+      oAuth2Client = new google.auth.OAuth2(
+        client_id,
+        client_secret,
+        redirect_uris[0]
+      );
+    }
+  }
+}
+
+// Initialize Google Auth on startup
+initializeGoogleAuth();
+
+// Google Authentication endpoints
+app.get('/api/auth/google', (req, res) => {
+  if (!oAuth2Client) {
+    return res.status(500).json({
+      success: false,
+      error: 'Google authentication not configured'
+    });
+  }
+
+  const authUrl = oAuth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: SCOPES,
+  });
+
+  res.json({
+    success: true,
+    authUrl: authUrl
+  });
+});
+
+app.get('/api/auth/google/callback', async (req, res) => {
+  const { code } = req.query;
+  
+  if (!code) {
+    return res.status(400).json({
+      success: false,
+      error: 'Authorization code missing'
+    });
+  }
+
+  try {
+    const { tokens } = await oAuth2Client.getToken(code);
+    oAuth2Client.setCredentials(tokens);
+    
+    // Store tokens in session or database (for demo, we'll just keep in memory)
+    console.log('Google Calendar authentication successful');
+    
+    res.send(`
+      <html>
+        <body>
+          <h2>✅ Authentication Successful!</h2>
+          <p>You can now close this window and return to your CRM.</p>
+          <script>
+            // Notify parent window and close
+            if (window.opener) {
+              window.opener.postMessage({type: 'google-auth-success'}, '*');
+              window.close();
+            }
+          </script>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error('Google auth error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Authentication failed'
+    });
+  }
+});
+
+// Google Calendar Events endpoint
+app.get('/api/calendar/events', async (req, res) => {
+  if (!oAuth2Client) {
+    return res.status(500).json({
+      success: false,
+      error: 'Google authentication not configured'
+    });
+  }
+
+  try {
+    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+    
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
+    const response = await calendar.events.list({
+      calendarId: 'primary',
+      timeMin: weekAgo.toISOString(),
+      timeMax: now.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+    });
+
+    res.json({
+      success: true,
+      data: response.data.items || []
+    });
+  } catch (error) {
+    console.error('Calendar events error:', error);
+    
+    if (error.code === 401) {
+      res.status(401).json({
+        success: false,
+        error: 'Authentication required. Please connect to Google Calendar first.'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch calendar events'
+      });
+    }
+  }
+});
+
+// Serve static files
+app.use(express.static('public'));
+
+// Main app route
 app.get('/', (req, res) => {
   res.send(`
     <!DOCTYPE html>
-    <html>
+    <html lang="es">
     <head>
-      <title>CRM Calendar Sync</title>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>IntoTheCom CRM</title>
       <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        .container { max-width: 800px; margin: 0 auto; }
-        button { padding: 10px 20px; margin: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        .contacts { margin-top: 20px; }
-        .contact { padding: 10px; border: 1px solid #ddd; margin: 5px 0; border-radius: 4px; }
-        .loading { color: #666; }
-        .error { color: #dc3545; }
-        .success { color: #28a745; }
+        * {
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+        }
+        
+        body {
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          background: #f8fafc;
+          color: #2d3748;
+        }
+        
+        .app-container {
+          display: flex;
+          min-height: 100vh;
+        }
+        
+        .sidebar {
+          width: 260px;
+          background: #1a202c;
+          padding: 20px 0;
+          position: fixed;
+          height: 100vh;
+          left: 0;
+          top: 0;
+          overflow-y: auto;
+        }
+        
+        .sidebar-header {
+          padding: 0 20px 30px;
+          border-bottom: 1px solid #2d3748;
+        }
+        
+        .logo {
+          color: #fff;
+          font-size: 24px;
+          font-weight: 700;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        
+        .logo::before {
+          content: "🚀";
+          font-size: 28px;
+        }
+        
+        .nav-menu {
+          padding: 30px 0;
+        }
+        
+        .nav-item {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          padding: 12px 20px;
+          color: #a0aec0;
+          text-decoration: none;
+          transition: all 0.2s;
+          border-left: 3px solid transparent;
+        }
+        
+        .nav-item:hover {
+          background: #2d3748;
+          color: #fff;
+        }
+        
+        .nav-item.active {
+          background: #2d3748;
+          color: #4299e1;
+          border-left-color: #4299e1;
+        }
+        
+        .nav-icon {
+          font-size: 18px;
+          width: 20px;
+          text-align: center;
+        }
+        
+        .main-content {
+          flex: 1;
+          margin-left: 260px;
+          padding: 30px;
+        }
+        
+        .header {
+          background: #fff;
+          padding: 20px 30px;
+          border-radius: 12px;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          margin-bottom: 30px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .header h1 {
+          font-size: 28px;
+          color: #1a202c;
+          margin: 0;
+        }
+        
+        .header-actions {
+          display: flex;
+          gap: 15px;
+        }
+        
+        .btn {
+          padding: 10px 20px;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          font-weight: 500;
+          transition: all 0.2s;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+        
+        .btn-primary {
+          background: #4299e1;
+          color: white;
+        }
+        
+        .btn-primary:hover {
+          background: #3182ce;
+        }
+        
+        .btn-secondary {
+          background: #e2e8f0;
+          color: #4a5568;
+        }
+        
+        .btn-secondary:hover {
+          background: #cbd5e0;
+        }
+        
+        .content-area {
+          background: #fff;
+          border-radius: 12px;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          min-height: 600px;
+        }
+        
+        .tab-content {
+          padding: 30px;
+        }
+        
+        .calendar-container {
+          height: 600px;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .calendar-header {
+          background: #f7fafc;
+          padding: 20px;
+          border-bottom: 1px solid #e2e8f0;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .calendar-title {
+          font-size: 18px;
+          font-weight: 600;
+          color: #2d3748;
+        }
+        
+        .calendar-nav {
+          display: flex;
+          gap: 10px;
+        }
+        
+        .calendar-nav button {
+          padding: 8px 12px;
+          border: 1px solid #e2e8f0;
+          background: white;
+          border-radius: 6px;
+          cursor: pointer;
+          color: #4a5568;
+        }
+        
+        .calendar-nav button:hover {
+          background: #f7fafc;
+        }
+        
+        .calendar-grid {
+          padding: 20px;
+          height: calc(100% - 80px);
+          overflow-y: auto;
+        }
+        
+        .auth-prompt {
+          text-align: center;
+          padding: 60px 20px;
+          color: #718096;
+        }
+        
+        .auth-prompt h3 {
+          margin-bottom: 15px;
+          font-size: 20px;
+          color: #2d3748;
+        }
+        
+        .status {
+          margin: 20px 0;
+          padding: 15px;
+          border-radius: 8px;
+          text-align: center;
+        }
+        
+        .status.loading {
+          background: #e6fffa;
+          color: #00a3c4;
+          border: 1px solid #b8f5ff;
+        }
+        
+        .status.success {
+          background: #f0fff4;
+          color: #22543d;
+          border: 1px solid #68d391;
+        }
+        
+        .status.error {
+          background: #fed7d7;
+          color: #822727;
+          border: 1px solid #feb2b2;
+        }
+        
+        .event-item {
+          background: #f7fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          padding: 15px;
+          margin-bottom: 10px;
+          transition: all 0.2s;
+        }
+        
+        .event-item:hover {
+          background: #edf2f7;
+          border-color: #cbd5e0;
+        }
+        
+        .event-time {
+          color: #4299e1;
+          font-weight: 500;
+          font-size: 14px;
+          margin-bottom: 5px;
+        }
+        
+        .event-title {
+          font-weight: 600;
+          color: #2d3748;
+          margin-bottom: 5px;
+        }
+        
+        .event-attendees {
+          color: #718096;
+          font-size: 14px;
+        }
+        
+        @media (max-width: 768px) {
+          .sidebar {
+            width: 100%;
+            position: relative;
+            height: auto;
+          }
+          
+          .main-content {
+            margin-left: 0;
+          }
+          
+          .header {
+            flex-direction: column;
+            gap: 15px;
+            text-align: center;
+          }
+        }
       </style>
     </head>
     <body>
-      <div class="container">
-        <h1>🚀 CRM Calendar Sync</h1>
+      <div class="app-container">
+        <div class="sidebar">
+          <div class="sidebar-header">
+            <div class="logo">IntoTheCom CRM</div>
+          </div>
+          <nav class="nav-menu">
+            <a href="#" class="nav-item active" data-tab="calendar">
+              <span class="nav-icon">📅</span>
+              <span>Calendario</span>
+            </a>
+            <a href="#" class="nav-item" data-tab="contacts">
+              <span class="nav-icon">👥</span>
+              <span>Contactos</span>
+            </a>
+            <a href="#" class="nav-item" data-tab="sync">
+              <span class="nav-icon">🔄</span>
+              <span>Sincronización</span>
+            </a>
+          </nav>
+        </div>
         
-        <button onclick="syncContacts()">Sync Now</button>
-        <button onclick="loadContacts()">Load Contacts</button>
-        
-        <div id="status"></div>
-        
-        <div class="contacts">
-          <h2>Contacts</h2>
-          <div id="contactsList"></div>
+        <div class="main-content">
+          <div class="header">
+            <h1 id="pageTitle">Calendario</h1>
+            <div class="header-actions">
+              <button class="btn btn-secondary" onclick="refreshData()">
+                <span>🔄</span> Actualizar
+              </button>
+              <button class="btn btn-primary" onclick="authenticateGoogle()">
+                <span>🔐</span> Conectar Google
+              </button>
+            </div>
+          </div>
+          
+          <div class="content-area">
+            <div id="calendar-tab" class="tab-content">
+              <div class="calendar-container">
+                <div class="calendar-header">
+                  <div class="calendar-title">Mis Eventos</div>
+                  <div class="calendar-nav">
+                    <button onclick="loadCalendarEvents()">Cargar Eventos</button>
+                    <button onclick="showTodayEvents()">Hoy</button>
+                    <button onclick="showWeekEvents()">Esta Semana</button>
+                  </div>
+                </div>
+                <div class="calendar-grid">
+                  <div class="auth-prompt">
+                    <h3>Conecta tu Google Calendar</h3>
+                    <p>Autoriza el acceso a tu calendario para ver y gestionar eventos</p>
+                    <button class="btn btn-primary" onclick="authenticateGoogle()" style="margin-top: 20px;">
+                      <span>🔐</span> Conectar Google Calendar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div id="contacts-tab" class="tab-content" style="display: none;">
+              <div id="status"></div>
+              <div id="contactsList"></div>
+            </div>
+            
+            <div id="sync-tab" class="tab-content" style="display: none;">
+              <h3>Sincronización con Google Calendar</h3>
+              <div id="syncStatus"></div>
+              <button class="btn btn-primary" onclick="syncContacts()">
+                <span>🔄</span> Sincronizar Ahora
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
       <script>
+        // Tab switching
+        document.querySelectorAll('.nav-item').forEach(item => {
+          item.addEventListener('click', (e) => {
+            e.preventDefault();
+            
+            // Update active nav item
+            document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+            item.classList.add('active');
+            
+            // Show/hide tabs
+            const tabId = item.getAttribute('data-tab');
+            document.querySelectorAll('.tab-content').forEach(tab => tab.style.display = 'none');
+            document.getElementById(tabId + '-tab').style.display = 'block';
+            
+            // Update page title
+            const titles = {
+              'calendar': 'Calendario',
+              'contacts': 'Contactos',
+              'sync': 'Sincronización'
+            };
+            document.getElementById('pageTitle').textContent = titles[tabId];
+          });
+        });
+
+        async function authenticateGoogle() {
+          showStatus('Iniciando autenticación con Google...', 'loading');
+          
+          try {
+            const response = await fetch('/api/auth/google');
+            const result = await response.json();
+            
+            if (result.success) {
+              if (result.authUrl) {
+                window.open(result.authUrl, '_blank');
+                showStatus('Completa la autenticación en la ventana emergente', 'loading');
+              } else {
+                showStatus('Ya estás autenticado', 'success');
+                loadCalendarEvents();
+              }
+            } else {
+              showStatus('Error: ' + result.error, 'error');
+            }
+          } catch (error) {
+            showStatus('Error de conexión: ' + error.message, 'error');
+          }
+        }
+
+        async function loadCalendarEvents() {
+          const calendarGrid = document.querySelector('.calendar-grid');
+          calendarGrid.innerHTML = '<div class="status loading">Cargando eventos...</div>';
+          
+          try {
+            const response = await fetch('/api/calendar/events');
+            const result = await response.json();
+            
+            if (result.success) {
+              if (result.data.length === 0) {
+                calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No se encontraron eventos en tu calendario</p></div>';
+              } else {
+                calendarGrid.innerHTML = result.data.map(event => 
+                  '<div class="event-item">' +
+                    '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
+                    '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
+                    '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
+                  '</div>'
+                ).join('');
+              }
+            } else {
+              calendarGrid.innerHTML = '<div class="status error">Error: ' + result.error + '</div>';
+            }
+          } catch (error) {
+            calendarGrid.innerHTML = '<div class="status error">Error de conexión: ' + error.message + '</div>';
+          }
+        }
+
+        function formatEventTime(start) {
+          if (!start) return 'Hora no especificada';
+          const date = new Date(start.dateTime || start.date);
+          return date.toLocaleString('es-ES', {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            hour: start.dateTime ? '2-digit' : undefined,
+            minute: start.dateTime ? '2-digit' : undefined
+          });
+        }
+
+        function formatAttendees(attendees) {
+          if (!attendees || attendees.length === 0) return 'Sin asistentes';
+          const names = attendees.map(a => a.displayName || a.email).slice(0, 3);
+          return names.join(', ') + (attendees.length > 3 ? ' y ' + (attendees.length - 3) + ' más' : '');
+        }
+
+        function showTodayEvents() {
+          // Implementation for today's events
+          loadCalendarEvents();
+        }
+
+        function showWeekEvents() {
+          // Implementation for this week's events
+          loadCalendarEvents();
+        }
+
+        function refreshData() {
+          const activeTab = document.querySelector('.nav-item.active').getAttribute('data-tab');
+          if (activeTab === 'calendar') {
+            loadCalendarEvents();
+          } else if (activeTab === 'contacts') {
+            loadContacts();
+          }
+        }
+
+        function showStatus(message, type) {
+          const statusDiv = document.getElementById('status') || document.getElementById('syncStatus');
+          if (statusDiv) {
+            statusDiv.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
+          }
+        }
+
         async function syncContacts() {
-          const status = document.getElementById('status');
-          status.innerHTML = '<div class="loading">Syncing contacts...</div>';
+          const statusDiv = document.getElementById('syncStatus');
+          statusDiv.innerHTML = '<div class="status loading">Sincronizando contactos...</div>';
           
           try {
             const response = await fetch('/api/sync', {
@@ -187,19 +785,18 @@ app.get('/', (req, res) => {
             const result = await response.json();
             
             if (result.success) {
-              status.innerHTML = '<div class="success">Sync completed! ' + result.message + '</div>';
-              loadContacts();
+              statusDiv.innerHTML = '<div class="status success">Sincronización completada: ' + result.message + '</div>';
             } else {
-              status.innerHTML = '<div class="error">Sync failed: ' + result.error + '</div>';
+              statusDiv.innerHTML = '<div class="status error">Error: ' + result.error + '</div>';
             }
           } catch (error) {
-            status.innerHTML = '<div class="error">Error: ' + error.message + '</div>';
+            statusDiv.innerHTML = '<div class="status error">Error: ' + error.message + '</div>';
           }
         }
         
         async function loadContacts() {
           const contactsList = document.getElementById('contactsList');
-          contactsList.innerHTML = '<div class="loading">Loading contacts...</div>';
+          contactsList.innerHTML = '<div class="status loading">Cargando contactos...</div>';
           
           try {
             const response = await fetch('/api/contacts');
@@ -207,26 +804,22 @@ app.get('/', (req, res) => {
             
             if (result.success) {
               if (result.data.length === 0) {
-                contactsList.innerHTML = '<div class="contact">No contacts found. Try syncing with Google Calendar first.</div>';
+                contactsList.innerHTML = '<div class="auth-prompt"><h3>No hay contactos</h3><p>Sincroniza con Google Calendar para ver contactos</p></div>';
               } else {
                 contactsList.innerHTML = result.data.map(contact => 
-                  '<div class="contact">' +
-                    '<strong>' + contact.email + '</strong>' +
-                    (contact.name ? ' (' + contact.name + ')' : '') +
-                    '<br><small>' + contact.meeting_count + ' meetings | Last seen: ' + contact.last_seen + '</small>' +
+                  '<div class="event-item">' +
+                    '<div class="event-title">' + contact.email + '</div>' +
+                    '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + contact.meeting_count + ' reuniones</div>' +
                   '</div>'
                 ).join('');
               }
             } else {
-              contactsList.innerHTML = '<div class="error">Failed to load contacts</div>';
+              contactsList.innerHTML = '<div class="status error">Error: ' + result.error + '</div>';
             }
           } catch (error) {
-            contactsList.innerHTML = '<div class="error">Error loading contacts</div>';
+            contactsList.innerHTML = '<div class="status error">Error: ' + error.message + '</div>';
           }
         }
-        
-        // Load contacts on page load
-        loadContacts();
       </script>
     </body>
     </html>
