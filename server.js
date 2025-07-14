@@ -973,14 +973,36 @@ app.get('/', (req, res) => {
           }
         }
 
+        // Check only auth status without reloading events
+        async function checkAuthStatusOnly() {
+          try {
+            const response = await fetch('/api/auth/status');
+            const result = await response.json();
+            
+            if (result.success && result.authenticated) {
+              updateAuthButton(true);
+            } else {
+              updateAuthButton(false);
+              // Clear cache if not authenticated
+              cachedEvents = null;
+              lastFetchTime = null;
+            }
+          } catch (error) {
+            console.error('Error checking auth status:', error);
+            updateAuthButton(false);
+          }
+        }
+
         // Update authentication button based on status
         function updateAuthButton(isAuthenticated) {
           const authButton = document.getElementById('authButton');
           
           if (isAuthenticated) {
             authButton.innerHTML = '<div class="connection-status connected">✓ Conectado</div>';
+            startAutoSync();
           } else {
             authButton.innerHTML = '<button class="btn btn-primary" onclick="authenticateGoogle()">Conectar Google</button>';
+            stopAutoSync();
             // Also update calendar grid to show connection prompt
             const calendarGrid = document.querySelector('.calendar-grid');
             if (calendarGrid && document.querySelector('.nav-item.active')?.getAttribute('data-tab') === 'calendar') {
@@ -996,49 +1018,97 @@ app.get('/', (req, res) => {
           }
         }
 
+        // Start automatic synchronization
+        function startAutoSync() {
+          if (autoSyncInterval) return; // Already running
+          
+          autoSyncInterval = setInterval(async () => {
+            // Only sync if calendar tab is active
+            const activeTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab');
+            if (activeTab === 'calendar') {
+              await syncCalendarSilently();
+            }
+          }, AUTO_SYNC_INTERVAL);
+        }
+
+        // Stop automatic synchronization
+        function stopAutoSync() {
+          if (autoSyncInterval) {
+            clearInterval(autoSyncInterval);
+            autoSyncInterval = null;
+          }
+        }
+
+        // Silent sync - updates without showing loading
+        async function syncCalendarSilently() {
+          try {
+            const activeView = document.querySelector('.view-btn.active')?.getAttribute('data-view') || 'week';
+            const response = await fetch('/api/calendar/events?view=' + activeView);
+            const result = await response.json();
+            
+            if (result.success && result.data) {
+              // Check if there are changes
+              const hasChanges = !cachedEvents || JSON.stringify(cachedEvents) !== JSON.stringify(result.data);
+              
+              if (hasChanges) {
+                cachedEvents = result.data;
+                lastFetchTime = Date.now();
+                renderCalendarView(result.data, activeView);
+              }
+            }
+          } catch (error) {
+            console.error('Silent sync error:', error);
+          }
+        }
+
+        // Cache system for events
+        let cachedEvents = null;
+        let lastFetchTime = null;
+        const CACHE_DURATION = 60000; // 1 minuto
+        let autoSyncInterval = null;
+        const AUTO_SYNC_INTERVAL = 120000; // 2 minutos
+        
         // Check auth status on page load
         document.addEventListener('DOMContentLoaded', () => {
           checkAuthStatus();
         });
         
-        // Also check when tab becomes visible (user returns to tab)
+        // Check auth status when tab becomes visible, but don't reload events unnecessarily
         document.addEventListener('visibilitychange', () => {
           if (!document.hidden) {
-            checkAuthStatus();
+            checkAuthStatusOnly();
           }
         });
 
-        async function loadCalendarEvents(view = 'week') {
+        // Clean up on page unload
+        window.addEventListener('beforeunload', () => {
+          stopAutoSync();
+        });
+
+        async function loadCalendarEvents(view = 'week', forceRefresh = false) {
           const calendarGrid = document.querySelector('.calendar-grid');
+          
+          // Check if we can use cached data
+          const now = Date.now();
+          if (!forceRefresh && cachedEvents && lastFetchTime && (now - lastFetchTime) < CACHE_DURATION) {
+            renderCalendarView(cachedEvents, view);
+            return;
+          }
+          
           calendarGrid.innerHTML = '<div class="status loading">Cargando eventos...</div>';
           
           try {
             const response = await fetch('/api/calendar/events?view=' + view);
             const result = await response.json();
             
+            // Cache the results
             if (result.success) {
-              if (result.data.length === 0) {
-                calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No se encontraron eventos en tu calendario</p></div>';
-              } else {
-                if (view === 'week') {
-                  calendarGrid.innerHTML = renderWeekView(result.data);
-                } else if (view === 'month') {
-                  calendarGrid.innerHTML = renderMonthView(result.data);
-                } else {
-                  // Day view (default)
-                  calendarGrid.innerHTML = result.data.map(event => 
-                    '<div class="event-item">' +
-                      '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
-                      '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
-                      '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
-                      '<div class="event-actions">' +
-                        (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn">Unirse</a>' : '') +
-                        '<button class="event-details-btn" onclick="showEventDetails(&quot;' + event.id + '&quot;)">Detalles</button>' +
-                      '</div>' +
-                    '</div>'
-                  ).join('');
-                }
-              }
+              cachedEvents = result.data;
+              lastFetchTime = now;
+            }
+            
+            if (result.success) {
+              renderCalendarView(result.data, view);
             } else {
               calendarGrid.innerHTML = '<div class="status error">Error: ' + result.error + '</div>';
               // If authentication error, update button status
@@ -1099,6 +1169,34 @@ app.get('/', (req, res) => {
 
         function showEventDetails(eventId) {
           alert('Detalles del evento: ' + eventId);
+        }
+
+        function renderCalendarView(events, view) {
+          const calendarGrid = document.querySelector('.calendar-grid');
+          
+          if (events.length === 0) {
+            calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No se encontraron eventos en tu calendario</p></div>';
+            return;
+          }
+          
+          if (view === 'week') {
+            calendarGrid.innerHTML = renderWeekView(events);
+          } else if (view === 'month') {
+            calendarGrid.innerHTML = renderMonthView(events);
+          } else {
+            // Day view (default)
+            calendarGrid.innerHTML = events.map(event => 
+              '<div class="event-item">' +
+                '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
+                '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
+                '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
+                '<div class="event-actions">' +
+                  (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn">Unirse</a>' : '') +
+                  '<button class="event-details-btn" onclick="showEventDetails(&quot;' + event.id + '&quot;)">Detalles</button>' +
+                '</div>' +
+              '</div>'
+            ).join('');
+          }
         }
 
         function renderWeekView(events) {
@@ -1216,7 +1314,7 @@ app.get('/', (req, res) => {
           if (activeTab === 'calendar') {
             // Check which view is active and load accordingly
             const activeView = document.querySelector('.view-btn.active')?.getAttribute('data-view') || 'week';
-            loadCalendarEvents(activeView);
+            loadCalendarEvents(activeView, true); // Force refresh
           } else if (activeTab === 'contacts') {
             loadContacts();
           }
