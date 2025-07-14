@@ -261,12 +261,7 @@ app.get('/api/tags', async (req, res) => {
   try {
     // Start with predefined tags
     const predefinedTags = [
-      { tag: 'New Lead', count: 0 },
-      { tag: 'Hot Lead', count: 0 },
-      { tag: 'Cold Lead', count: 0 },
-      { tag: 'Client', count: 0 },
-      { tag: 'Partner', count: 0 },
-      { tag: 'Prospect', count: 0 }
+      { tag: 'New Lead', count: 0 }
     ];
     
     // Try to get existing tags from database
@@ -2320,7 +2315,7 @@ app.get('/', (req, res) => {
         }
 
         async function toggleTag(email, tag, element) {
-          let contactData = contactsData[email];
+          let contactData = contactsData[email] || { tags: [], notes: '' };
           
           const isSelected = element.classList.contains('selected');
           let newTags;
@@ -2337,63 +2332,98 @@ app.get('/', (req, res) => {
             element.textContent = tag + ' ✓';
           }
           
-          // If contact doesn't exist in database, create it first
-          if (!contactData.id) {
-            try {
-              const createResponse = await fetch('/api/contacts', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                  email: email,
-                  name: email.split('@')[0],
-                  tags: newTags,
-                  notes: contactData.notes || ''
-                })
-              });
-              
-              const createResult = await createResponse.json();
-              if (createResult.success) {
-                contactData.id = createResult.data.id;
-                contactData.tags = newTags;
+          // Always try to create or update contact with simplified approach
+          try {
+            let contactId = contactData.id;
+            
+            // If no ID, try to create contact
+            if (!contactId) {
+              try {
+                const createResponse = await fetch('/api/contacts', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    email: email,
+                    name: email.split('@')[0],
+                    tags: newTags,
+                    notes: contactData.notes || ''
+                  })
+                });
                 
-                // Update UI
-                const tagsContainer = document.getElementById('tags-' + email.replace(/[^a-zA-Z0-9]/g, ''));
-                tagsContainer.innerHTML = renderContactTags(newTags);
-                
-                console.log('Contact created and tag added successfully');
-                return;
-              } else if (createResponse.status === 409) {
-                // Contact already exists, try to get it and update tags
-                try {
+                const createResult = await createResponse.json();
+                if (createResult.success) {
+                  contactId = createResult.data.id;
+                  contactData.id = contactId;
+                  contactData.tags = newTags;
+                  contactsData[email] = contactData;
+                  
+                  // Update UI
+                  const tagsContainer = document.getElementById('tags-' + email.replace(/[^a-zA-Z0-9]/g, ''));
+                  tagsContainer.innerHTML = renderContactTags(newTags);
+                  
+                  console.log('Contact created and tag added successfully');
+                  return;
+                } else if (createResponse.status === 409) {
+                  // Contact exists, get the existing contact and use its ID
                   const getResponse = await fetch('/api/contacts');
                   const getResult = await getResponse.json();
                   if (getResult.success) {
                     const existingContact = getResult.data.find(c => c.email === email);
                     if (existingContact) {
-                      contactData.id = existingContact.id;
+                      contactId = existingContact.id;
+                      contactData.id = contactId;
                       contactData.tags = existingContact.tags || [];
                       contactsData[email] = contactData;
-                      // Continue with the tag update below
+                      // Continue to update tags below
                     }
                   }
-                } catch (getError) {
-                  console.error('Error getting existing contact:', getError);
-                  alert('Error al obtener contacto existente');
+                } else {
+                  console.error('Error creating contact:', createResult.error);
+                  alert('Error: ' + createResult.error);
                   return;
                 }
-              } else {
-                console.error('Error creating contact:', createResult.error);
-                alert('Error al crear contacto: ' + createResult.error);
+              } catch (createError) {
+                console.error('Error in contact creation:', createError);
+                alert('Error de conexión al crear contacto');
                 return;
               }
-            } catch (error) {
-              console.error('Error creating contact:', error);
-              alert('Error al crear contacto: ' + error.message);
-              return;
             }
+            
+            // Update tags for existing contact
+            if (contactId) {
+              const updateResponse = await fetch('/api/contacts/' + contactId + '/tags', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  tags: newTags,
+                  notes: contactData.notes || ''
+                })
+              });
+              
+              const updateResult = await updateResponse.json();
+              if (updateResult.success) {
+                contactData.tags = newTags;
+                contactsData[email] = contactData;
+                
+                // Update UI
+                const tagsContainer = document.getElementById('tags-' + email.replace(/[^a-zA-Z0-9]/g, ''));
+                tagsContainer.innerHTML = renderContactTags(newTags);
+                
+                console.log('Tag updated successfully');
+              } else {
+                console.error('Error updating tag:', updateResult.error);
+                alert('Error al actualizar etiqueta: ' + updateResult.error);
+              }
+            }
+          } catch (error) {
+            console.error('Error in toggleTag:', error);
+            alert('Error de conexión');
           }
+        }
           
           // Update existing contact
           try {
@@ -2949,11 +2979,6 @@ app.get('/', (req, res) => {
                 // Organize contacts by tags
                 const contactsByTag = {
                   'New Lead': [],
-                  'Hot Lead': [],
-                  'Cold Lead': [],
-                  'Client': [],
-                  'Partner': [],
-                  'Prospect': [],
                   'Untagged': []
                 };
                 
@@ -2983,21 +3008,11 @@ app.get('/', (req, res) => {
                   if (contacts.length > 0) {
                     const tagIcons = {
                       'New Lead': '🎯',
-                      'Hot Lead': '🔥',
-                      'Cold Lead': '❄️',
-                      'Client': '💼',
-                      'Partner': '🤝',
-                      'Prospect': '👀',
                       'Untagged': '📝'
                     };
                     
                     const tagColors = {
                       'New Lead': '#FF6B00',
-                      'Hot Lead': '#e53e3e',
-                      'Cold Lead': '#4299e1',
-                      'Client': '#38a169',
-                      'Partner': '#805ad5',
-                      'Prospect': '#d69e2e',
                       'Untagged': '#718096'
                     };
                     
