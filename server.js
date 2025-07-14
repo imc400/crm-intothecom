@@ -1487,7 +1487,7 @@ app.get('/', (req, res) => {
             const isCurrentMonth = date.getMonth() === month;
             const dayClass = isCurrentMonth ? 'month-day' : 'month-day other-month';
             
-            html += '<div class="' + dayClass + '" onclick="selectDayFromMonth(\'' + date.toISOString().split('T')[0] + '\')">';
+            html += '<div class="' + dayClass + '" onclick="selectDayFromMonth(&quot;' + date.toISOString().split('T')[0] + '&quot;)">';
             html += '<div class="month-day-number">' + date.getDate() + '</div>';
             
             // Find events for this day
