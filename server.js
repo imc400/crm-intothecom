@@ -144,6 +144,7 @@ app.post('/api/sync', async (req, res) => {
 // Google Calendar Authentication
 const SCOPES = ['https://www.googleapis.com/auth/calendar.readonly'];
 let oAuth2Client = null;
+let storedTokens = null;
 
 // Initialize Google OAuth2 client
 function initializeGoogleAuth() {
@@ -174,6 +175,11 @@ function initializeGoogleAuth() {
 
 // Initialize Google Auth on startup
 initializeGoogleAuth();
+
+// Restore tokens if they exist
+if (storedTokens && oAuth2Client) {
+  oAuth2Client.setCredentials(storedTokens);
+}
 
 // Google Authentication endpoints
 app.get('/api/auth/google', (req, res) => {
@@ -208,8 +214,8 @@ app.get('/api/auth/google/callback', async (req, res) => {
   try {
     const { tokens } = await oAuth2Client.getToken(code);
     oAuth2Client.setCredentials(tokens);
+    storedTokens = tokens;
     
-    // Store tokens in session or database (for demo, we'll just keep in memory)
     console.log('Google Calendar authentication successful');
     
     res.send(`
@@ -234,6 +240,16 @@ app.get('/api/auth/google/callback', async (req, res) => {
       error: 'Authentication failed'
     });
   }
+});
+
+// Check authentication status
+app.get('/api/auth/status', (req, res) => {
+  const isAuthenticated = !!(oAuth2Client && storedTokens);
+  res.json({
+    success: true,
+    authenticated: isAuthenticated,
+    message: isAuthenticated ? 'Google Calendar conectado' : 'Google Calendar desconectado'
+  });
 });
 
 // Google Calendar Events endpoint
@@ -359,7 +375,7 @@ app.get('/', (req, res) => {
         }
         
         .logo img {
-          height: 32px;
+          height: 48px;
           width: auto;
         }
         
@@ -452,6 +468,30 @@ app.get('/', (req, res) => {
         
         .btn-secondary:hover {
           background: #cbd5e0;
+        }
+        
+        .btn-success {
+          background: #48bb78;
+          color: white;
+        }
+        
+        .btn-success:hover {
+          background: #38a169;
+        }
+        
+        .connection-status {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 20px;
+          border-radius: 8px;
+          font-weight: 500;
+        }
+        
+        .connection-status.connected {
+          background: #f0fff4;
+          color: #22543d;
+          border: 1px solid #68d391;
         }
         
         .content-area {
@@ -785,9 +825,11 @@ app.get('/', (req, res) => {
               <button class="btn btn-secondary" onclick="refreshData()">
                 Actualizar
               </button>
-              <button class="btn btn-primary" onclick="authenticateGoogle()">
-                Conectar Google
-              </button>
+              <div id="authButton">
+                <button class="btn btn-primary" onclick="authenticateGoogle()">
+                  Conectar Google
+                </button>
+              </div>
             </div>
           </div>
           
@@ -883,11 +925,43 @@ app.get('/', (req, res) => {
         window.addEventListener('message', (event) => {
           if (event.data && event.data.type === 'google-auth-success') {
             showStatus('Autenticación completada exitosamente', 'success');
+            updateAuthButton(true);
             setTimeout(() => {
               loadCalendarEvents();
             }, 1000);
           }
         });
+
+        // Check authentication status on page load
+        async function checkAuthStatus() {
+          try {
+            const response = await fetch('/api/auth/status');
+            const result = await response.json();
+            
+            if (result.success && result.authenticated) {
+              updateAuthButton(true);
+            } else {
+              updateAuthButton(false);
+            }
+          } catch (error) {
+            console.error('Error checking auth status:', error);
+            updateAuthButton(false);
+          }
+        }
+
+        // Update authentication button based on status
+        function updateAuthButton(isAuthenticated) {
+          const authButton = document.getElementById('authButton');
+          
+          if (isAuthenticated) {
+            authButton.innerHTML = '<div class="connection-status connected">✓ Conectado</div>';
+          } else {
+            authButton.innerHTML = '<button class="btn btn-primary" onclick="authenticateGoogle()">Conectar Google</button>';
+          }
+        }
+
+        // Check auth status on page load
+        document.addEventListener('DOMContentLoaded', checkAuthStatus);
 
         async function loadCalendarEvents(view = 'month') {
           const calendarGrid = document.querySelector('.calendar-grid');
