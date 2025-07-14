@@ -2070,7 +2070,7 @@ app.get('/', (req, res) => {
                   (!isIntothecomEmail ? '<span class="domain-badge">Externo</span>' : '<span class="domain-badge" style="background: #38a169;">IntoTheCom</span>') +
                   (!isIntothecomEmail ? '<div class="tags-container">' +
                     '<div class="tag-selector">' +
-                      '<div class="tag-dropdown" onclick="toggleTagDropdown(\'' + email + '\')">' +
+                      '<div class="tag-dropdown" onclick="toggleTagDropdown(&quot;' + email + '&quot;)">' +
                         'Agregar etiqueta ▼' +
                       '</div>' +
                       '<div class="tag-dropdown-content" id="dropdown-' + email.replace(/[^a-zA-Z0-9]/g, '') + '">' +
@@ -2128,7 +2128,7 @@ app.get('/', (req, res) => {
           return tags.map(tag => {
             const tagClass = tag.toLowerCase().replace(/\s+/g, '-');
             return '<span class="tag-badge ' + tagClass + '">' + tag + 
-                   '<span class="tag-remove" onclick="removeTag(\'' + tag + '\', this)">×</span></span>';
+                   '<span class="tag-remove" onclick="removeTag(&quot;' + tag + '&quot;, this)">×</span></span>';
           }).join('');
         }
 
@@ -2137,7 +2137,7 @@ app.get('/', (req, res) => {
             const tag = tagInfo.tag;
             const isSelected = currentTags.includes(tag);
             return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" ' +
-                   'onclick="toggleTag(\'' + email + '\', \'' + tag + '\', this)">' +
+                   'onclick="toggleTag(&quot;' + email + '&quot;, &quot;' + tag + '&quot;, this)">' +
                    tag + (isSelected ? ' ✓' : '') +
                    '</div>';
           }).join('');
