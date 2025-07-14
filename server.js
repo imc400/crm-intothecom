@@ -746,18 +746,21 @@ app.get('/', (req, res) => {
           padding: 8px;
           position: relative;
           border: 1px solid #e2e8f0;
-          cursor: pointer;
-          transition: background-color 0.2s;
-        }
-        
-        .month-day:hover {
-          background: #f0f9ff;
         }
         
         .month-day-number {
           font-weight: 600;
           color: #2d3748;
           margin-bottom: 4px;
+          cursor: pointer;
+          padding: 4px;
+          border-radius: 4px;
+          transition: background-color 0.2s;
+        }
+        
+        .month-day-number:hover {
+          background: #FF6B00;
+          color: white;
         }
         
         .month-day.other-month {
@@ -1196,6 +1199,12 @@ app.get('/', (req, res) => {
           
           try {
             const dateParam = currentDate.toISOString().split('T')[0];
+            console.log('Loading events:', {
+              view: view,
+              date: dateParam,
+              currentDate: currentDate.toDateString(),
+              forceRefresh: forceRefresh
+            });
             const response = await fetch('/api/calendar/events?view=' + view + '&date=' + dateParam);
             const result = await response.json();
             
@@ -1295,7 +1304,9 @@ app.get('/', (req, res) => {
 
         function goToToday() {
           currentDate = new Date();
-          console.log('Going to today:', currentDate.toDateString());
+          currentView = 'day';
+          updateViewButtons('day');
+          console.log('Going to today (day view):', currentDate.toDateString());
           updateCalendarTitle();
           loadCalendarEventsForDate();
         }
@@ -1304,7 +1315,11 @@ app.get('/', (req, res) => {
           currentDate = new Date(dateString);
           currentView = 'day';
           updateViewButtons('day');
-          console.log('Selected day from month view:', currentDate.toDateString());
+          console.log('Selected day from month view:', {
+            dateString: dateString,
+            selectedDate: currentDate.toDateString(),
+            view: currentView
+          });
           updateCalendarTitle();
           loadCalendarEventsForDate();
         }
@@ -1487,8 +1502,8 @@ app.get('/', (req, res) => {
             const isCurrentMonth = date.getMonth() === month;
             const dayClass = isCurrentMonth ? 'month-day' : 'month-day other-month';
             
-            html += '<div class="' + dayClass + '" onclick="selectDayFromMonth(&quot;' + date.toISOString().split('T')[0] + '&quot;)">';
-            html += '<div class="month-day-number">' + date.getDate() + '</div>';
+            html += '<div class="' + dayClass + '">';
+            html += '<div class="month-day-number" onclick="selectDayFromMonth(&quot;' + date.toISOString().split('T')[0] + '&quot;)">' + date.getDate() + '</div>';
             
             // Find events for this day
             const dayEvents = events.filter(event => {
