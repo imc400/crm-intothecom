@@ -34,10 +34,30 @@ async function initDatabase() {
         first_seen DATE NOT NULL,
         last_seen DATE NOT NULL,
         meeting_count INTEGER DEFAULT 1,
-        is_lead BOOLEAN DEFAULT FALSE,
-        lead_notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        tags TEXT[] DEFAULT '{}',
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+    
+    // Create trigger to update updated_at timestamp
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION update_updated_at_column()
+      RETURNS TRIGGER AS $$
+      BEGIN
+        NEW.updated_at = CURRENT_TIMESTAMP;
+        RETURN NEW;
+      END;
+      $$ language 'plpgsql';
+    `);
+    
+    await pool.query(`
+      DROP TRIGGER IF EXISTS update_contacts_updated_at ON contacts;
+      CREATE TRIGGER update_contacts_updated_at
+        BEFORE UPDATE ON contacts
+        FOR EACH ROW
+        EXECUTE FUNCTION update_updated_at_column();
     `);
     
     await pool.query(`
@@ -117,52 +137,123 @@ app.get('/api/contacts/new', async (req, res) => {
   }
 });
 
-// Update contact lead status
-app.post('/api/contacts/:contactId/lead', async (req, res) => {
+// Update contact tags
+app.post('/api/contacts/:contactId/tags', async (req, res) => {
   const { contactId } = req.params;
-  const { isLead, notes } = req.body;
+  const { tags, notes } = req.body;
   
   try {
-    const result = await pool.query(
-      'UPDATE contacts SET is_lead = $1, lead_notes = $2 WHERE id = $3 RETURNING *',
-      [isLead, notes || '', contactId]
-    );
+    // Validate tags array
+    if (!Array.isArray(tags)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Tags must be an array'
+      });
+    }
     
-    if (result.rows.length === 0) {
+    // Validate that intothecom emails don't get lead tags
+    const contact = await pool.query('SELECT email FROM contacts WHERE id = $1', [contactId]);
+    if (contact.rows.length === 0) {
       return res.status(404).json({
         success: false,
         error: 'Contact not found'
       });
     }
     
+    const email = contact.rows[0].email;
+    const isIntothecomEmail = email.includes('@intothecom.com') || email.includes('@intothecom');
+    
+    if (isIntothecomEmail && tags.includes('New Lead')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot mark IntoTheCom emails as leads'
+      });
+    }
+    
+    const result = await pool.query(
+      'UPDATE contacts SET tags = $1, notes = $2 WHERE id = $3 RETURNING *',
+      [tags, notes || '', contactId]
+    );
+    
     res.json({
       success: true,
       data: result.rows[0],
-      message: `Contact ${isLead ? 'marked as lead' : 'unmarked as lead'}`
+      message: 'Contact tags updated successfully'
     });
   } catch (error) {
-    console.error('Error updating lead status:', error);
+    console.error('Error updating contact tags:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to update lead status'
+      error: 'Failed to update contact tags'
     });
   }
 });
 
-// Get leads only
-app.get('/api/leads', async (req, res) => {
+// Get contacts by tag
+app.get('/api/contacts/tag/:tag', async (req, res) => {
+  const { tag } = req.params;
+  
   try {
-    const result = await pool.query('SELECT * FROM contacts WHERE is_lead = true ORDER BY created_at DESC');
+    const result = await pool.query(
+      'SELECT * FROM contacts WHERE $1 = ANY(tags) ORDER BY updated_at DESC',
+      [tag]
+    );
+    
     res.json({
       success: true,
       data: result.rows,
-      count: result.rows.length
+      count: result.rows.length,
+      tag: tag
     });
   } catch (error) {
-    console.error('Error fetching leads:', error);
+    console.error('Error fetching contacts by tag:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to fetch leads'
+      error: 'Failed to fetch contacts by tag'
+    });
+  }
+});
+
+// Get available tags
+app.get('/api/tags', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT unnest(tags) as tag, COUNT(*) as count
+      FROM contacts 
+      WHERE array_length(tags, 1) > 0
+      GROUP BY tag
+      ORDER BY count DESC, tag ASC
+    `);
+    
+    // Add predefined tags that should always be available
+    const predefinedTags = [
+      { tag: 'New Lead', count: 0 },
+      { tag: 'Hot Lead', count: 0 },
+      { tag: 'Cold Lead', count: 0 },
+      { tag: 'Client', count: 0 },
+      { tag: 'Partner', count: 0 },
+      { tag: 'Prospect', count: 0 }
+    ];
+    
+    // Merge with existing tags
+    const existingTags = result.rows.map(row => row.tag);
+    const allTags = [...result.rows];
+    
+    for (const predefined of predefinedTags) {
+      if (!existingTags.includes(predefined.tag)) {
+        allTags.push(predefined);
+      }
+    }
+    
+    res.json({
+      success: true,
+      data: allTags.sort((a, b) => b.count - a.count)
+    });
+  } catch (error) {
+    console.error('Error fetching tags:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch tags'
     });
   }
 });
@@ -240,16 +331,62 @@ app.post('/api/events/:eventId', async (req, res) => {
   }
 });
 
-// Manual sync endpoint (mock for now)
+// Real sync endpoint with Google Calendar
 app.post('/api/sync', async (req, res) => {
   try {
-    console.log('Manual sync requested (mock implementation)');
+    console.log('Real sync requested with Google Calendar');
+    
+    if (!oAuth2Client || !storedTokens) {
+      return res.status(401).json({
+        success: false,
+        error: 'Google Calendar not authenticated'
+      });
+    }
+    
+    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+    
+    // Get events from the last 30 days
+    const timeMin = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const timeMax = new Date();
+    
+    const response = await calendar.events.list({
+      calendarId: 'primary',
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+      maxResults: 1000
+    });
+    
+    const events = response.data.items || [];
+    console.log(`Processing ${events.length} events for contact sync`);
     
     const result = {
       newContacts: [],
       totalContacts: 0,
-      eventsProcessed: 0
+      eventsProcessed: events.length,
+      errors: []
     };
+    
+    // Process each event
+    for (const event of events) {
+      try {
+        if (event.attendees && event.attendees.length > 0) {
+          for (const attendee of event.attendees) {
+            if (attendee.email && attendee.email.includes('@')) {
+              await processContactFromEvent(attendee, event, result);
+            }
+          }
+        }
+        
+        // Store event in database
+        await storeEventInDatabase(event);
+        
+      } catch (eventError) {
+        console.error('Error processing event:', event.id, eventError);
+        result.errors.push(`Event ${event.id}: ${eventError.message}`);
+      }
+    }
     
     // Get total contacts count
     const contacts = await pool.query('SELECT COUNT(*) FROM contacts');
@@ -258,8 +395,9 @@ app.post('/api/sync', async (req, res) => {
     res.json({
       success: true,
       data: result,
-      message: `Sync completed: ${result.newContacts.length} new contacts found`
+      message: `Sync completed: ${result.newContacts.length} new contacts, ${result.eventsProcessed} events processed`
     });
+    
   } catch (error) {
     console.error('Sync error:', error);
     res.status(500).json({
@@ -269,6 +407,75 @@ app.post('/api/sync', async (req, res) => {
     });
   }
 });
+
+// Helper function to process contacts from events
+async function processContactFromEvent(attendee, event, result) {
+  const email = attendee.email.toLowerCase();
+  const name = attendee.displayName || attendee.email.split('@')[0];
+  const eventDate = new Date(event.start.dateTime || event.start.date);
+  
+  try {
+    // Check if contact already exists
+    const existingContact = await pool.query(
+      'SELECT * FROM contacts WHERE email = $1',
+      [email]
+    );
+    
+    if (existingContact.rows.length > 0) {
+      // Update existing contact
+      await pool.query(
+        'UPDATE contacts SET last_seen = $1, meeting_count = meeting_count + 1, name = COALESCE(NULLIF($2, \'\'), name) WHERE email = $3',
+        [eventDate.toISOString().split('T')[0], name, email]
+      );
+    } else {
+      // Create new contact
+      await pool.query(
+        'INSERT INTO contacts (email, name, first_seen, last_seen, meeting_count) VALUES ($1, $2, $3, $4, 1)',
+        [email, name, eventDate.toISOString().split('T')[0], eventDate.toISOString().split('T')[0]]
+      );
+      
+      result.newContacts.push({
+        email: email,
+        name: name,
+        first_seen: eventDate.toISOString().split('T')[0]
+      });
+    }
+  } catch (error) {
+    console.error('Error processing contact:', email, error);
+    throw error;
+  }
+}
+
+// Helper function to store events in database
+async function storeEventInDatabase(event) {
+  const eventId = event.id;
+  const summary = event.summary || '';
+  const description = event.description || '';
+  const startTime = event.start.dateTime || event.start.date;
+  const endTime = event.end.dateTime || event.end.date;
+  const attendeesCount = event.attendees ? event.attendees.length : 0;
+  const attendeesEmails = event.attendees ? event.attendees.map(a => a.email).join(', ') : '';
+  const hangoutLink = event.hangoutLink || '';
+  
+  try {
+    await pool.query(
+      `INSERT INTO events (google_event_id, summary, description, start_time, end_time, attendees_count, attendees_emails, hangout_link) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       ON CONFLICT (google_event_id) DO UPDATE SET
+       summary = EXCLUDED.summary,
+       description = EXCLUDED.description,
+       start_time = EXCLUDED.start_time,
+       end_time = EXCLUDED.end_time,
+       attendees_count = EXCLUDED.attendees_count,
+       attendees_emails = EXCLUDED.attendees_emails,
+       hangout_link = EXCLUDED.hangout_link`,
+      [eventId, summary, description, startTime, endTime, attendeesCount, attendeesEmails, hangoutLink]
+    );
+  } catch (error) {
+    console.error('Error storing event in database:', eventId, error);
+    throw error;
+  }
+}
 
 // Google Calendar Authentication
 const SCOPES = ['https://www.googleapis.com/auth/calendar'];
@@ -1175,17 +1382,118 @@ app.get('/', (req, res) => {
           font-weight: 500;
         }
         
-        .lead-toggle {
-          display: flex;
-          align-items: center;
-          gap: 8px;
+        .tags-container {
           margin-top: 10px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
         }
         
-        .lead-checkbox {
-          width: 16px;
-          height: 16px;
+        .tag-selector {
+          position: relative;
+          display: inline-block;
+        }
+        
+        .tag-dropdown {
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          padding: 8px;
+          background: white;
           cursor: pointer;
+          min-width: 120px;
+          font-size: 14px;
+        }
+        
+        .tag-dropdown:hover {
+          border-color: #FF6B00;
+        }
+        
+        .tag-dropdown-content {
+          display: none;
+          position: absolute;
+          background-color: white;
+          min-width: 160px;
+          box-shadow: 0px 8px 16px rgba(0,0,0,0.2);
+          z-index: 1;
+          border-radius: 6px;
+          border: 1px solid #e2e8f0;
+          max-height: 200px;
+          overflow-y: auto;
+        }
+        
+        .tag-dropdown-content.show {
+          display: block;
+        }
+        
+        .tag-option {
+          padding: 8px 12px;
+          cursor: pointer;
+          border-bottom: 1px solid #f7fafc;
+          font-size: 14px;
+        }
+        
+        .tag-option:hover {
+          background-color: #f7fafc;
+        }
+        
+        .tag-option:last-child {
+          border-bottom: none;
+        }
+        
+        .tag-option.selected {
+          background-color: #FF6B00;
+          color: white;
+        }
+        
+        .contact-tags {
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+          margin-top: 8px;
+        }
+        
+        .tag-badge {
+          background: #FF6B00;
+          color: white;
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+          font-weight: 500;
+          position: relative;
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+        }
+        
+        .tag-badge.hot-lead {
+          background: #e53e3e;
+        }
+        
+        .tag-badge.cold-lead {
+          background: #4299e1;
+        }
+        
+        .tag-badge.client {
+          background: #38a169;
+        }
+        
+        .tag-badge.partner {
+          background: #805ad5;
+        }
+        
+        .tag-badge.prospect {
+          background: #d69e2e;
+        }
+        
+        .tag-remove {
+          cursor: pointer;
+          margin-left: 4px;
+          font-size: 12px;
+          opacity: 0.7;
+        }
+        
+        .tag-remove:hover {
+          opacity: 1;
         }
         
         .modal-footer {
@@ -1696,7 +2004,10 @@ app.get('/', (req, res) => {
           }
         }
 
-        function populateEventModal(event) {
+        let availableTags = [];
+        let contactsData = {};
+
+        async function populateEventModal(event) {
           document.getElementById('eventTitle').value = event.summary || '';
           document.getElementById('eventDescription').value = event.description || '';
           document.getElementById('eventNotes').value = event.notes || '';
@@ -1728,36 +2039,49 @@ app.get('/', (req, res) => {
               }) + ' (Todo el día)';
           }
           
+          // Load available tags and contacts data
+          await loadTagsAndContacts();
+          
           // Populate attendees
           const attendeesList = document.getElementById('attendeesList');
           attendeesList.innerHTML = '';
           
           if (event.attendees && event.attendees.length > 0) {
-            event.attendees.forEach(attendee => {
+            for (const attendee of event.attendees) {
               const attendeeDiv = document.createElement('div');
               attendeeDiv.className = 'attendee-item';
               
               const email = attendee.email || '';
               const domain = email.includes('@') ? email.split('@')[1] : '';
-              const isExternalDomain = domain && !domain.includes('intothecom');
+              const isIntothecomEmail = email.includes('@intothecom.com') || email.includes('@intothecom');
+              
+              // Get contact data for this email
+              const contactData = contactsData[email] || { tags: [], notes: '' };
               
               attendeeDiv.innerHTML = 
                 '<div>' +
                   '<div class="attendee-email">' + email + '</div>' +
                   '<div class="attendee-name">' + (attendee.displayName || 'Sin nombre') + '</div>' +
+                  '<div class="contact-tags" id="tags-' + email.replace(/[^a-zA-Z0-9]/g, '') + '">' +
+                    renderContactTags(contactData.tags) +
+                  '</div>' +
                 '</div>' +
                 '<div>' +
-                  (isExternalDomain ? '<span class="domain-badge">Externo</span>' : '') +
-                  '<div class="lead-toggle">' +
-                    '<input type="checkbox" class="lead-checkbox" ' +
-                           (attendee.isLead ? 'checked' : '') + ' ' +
-                           'onchange="toggleLeadStatus(&quot;' + email + '&quot;, this.checked)">' +
-                    '<label>New Lead</label>' +
-                  '</div>' +
+                  (!isIntothecomEmail ? '<span class="domain-badge">Externo</span>' : '<span class="domain-badge" style="background: #38a169;">IntoTheCom</span>') +
+                  (!isIntothecomEmail ? '<div class="tags-container">' +
+                    '<div class="tag-selector">' +
+                      '<div class="tag-dropdown" onclick="toggleTagDropdown(\'' + email + '\')">' +
+                        'Agregar etiqueta ▼' +
+                      '</div>' +
+                      '<div class="tag-dropdown-content" id="dropdown-' + email.replace(/[^a-zA-Z0-9]/g, '') + '">' +
+                        renderTagOptions(email, contactData.tags) +
+                      '</div>' +
+                    '</div>' +
+                  '</div>' : '') +
                 '</div>';
               
               attendeesList.appendChild(attendeeDiv);
-            });
+            }
           } else {
             attendeesList.innerHTML = '<div style="text-align: center; color: #718096;">No hay asistentes</div>';
           }
@@ -1769,6 +2093,169 @@ app.get('/', (req, res) => {
           } else {
             meetingLink.innerHTML = '<span style="color: #718096;">No hay enlace de reunión</span>';
           }
+        }
+
+        async function loadTagsAndContacts() {
+          try {
+            // Load available tags
+            const tagsResponse = await fetch('/api/tags');
+            const tagsResult = await tagsResponse.json();
+            if (tagsResult.success) {
+              availableTags = tagsResult.data;
+            }
+            
+            // Load all contacts to get their current tags
+            const contactsResponse = await fetch('/api/contacts');
+            const contactsResult = await contactsResponse.json();
+            if (contactsResult.success) {
+              contactsData = {};
+              contactsResult.data.forEach(contact => {
+                contactsData[contact.email] = {
+                  id: contact.id,
+                  tags: contact.tags || [],
+                  notes: contact.notes || ''
+                };
+              });
+            }
+          } catch (error) {
+            console.error('Error loading tags and contacts:', error);
+          }
+        }
+
+        function renderContactTags(tags) {
+          if (!tags || tags.length === 0) return '';
+          
+          return tags.map(tag => {
+            const tagClass = tag.toLowerCase().replace(/\s+/g, '-');
+            return '<span class="tag-badge ' + tagClass + '">' + tag + 
+                   '<span class="tag-remove" onclick="removeTag(\'' + tag + '\', this)">×</span></span>';
+          }).join('');
+        }
+
+        function renderTagOptions(email, currentTags) {
+          return availableTags.map(tagInfo => {
+            const tag = tagInfo.tag;
+            const isSelected = currentTags.includes(tag);
+            return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" ' +
+                   'onclick="toggleTag(\'' + email + '\', \'' + tag + '\', this)">' +
+                   tag + (isSelected ? ' ✓' : '') +
+                   '</div>';
+          }).join('');
+        }
+
+        function toggleTagDropdown(email) {
+          const dropdownId = 'dropdown-' + email.replace(/[^a-zA-Z0-9]/g, '');
+          const dropdown = document.getElementById(dropdownId);
+          
+          // Close all other dropdowns
+          document.querySelectorAll('.tag-dropdown-content').forEach(d => {
+            if (d.id !== dropdownId) {
+              d.classList.remove('show');
+            }
+          });
+          
+          dropdown.classList.toggle('show');
+        }
+
+        async function toggleTag(email, tag, element) {
+          const contactData = contactsData[email];
+          if (!contactData) return;
+          
+          const isSelected = element.classList.contains('selected');
+          let newTags;
+          
+          if (isSelected) {
+            // Remove tag
+            newTags = contactData.tags.filter(t => t !== tag);
+            element.classList.remove('selected');
+            element.textContent = tag;
+          } else {
+            // Add tag
+            newTags = [...contactData.tags, tag];
+            element.classList.add('selected');
+            element.textContent = tag + ' ✓';
+          }
+          
+          // Update in backend
+          try {
+            const response = await fetch('/api/contacts/' + contactData.id + '/tags', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                tags: newTags,
+                notes: contactData.notes
+              })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              // Update local data
+              contactData.tags = newTags;
+              
+              // Update UI
+              const tagsContainer = document.getElementById('tags-' + email.replace(/[^a-zA-Z0-9]/g, ''));
+              tagsContainer.innerHTML = renderContactTags(newTags);
+              
+              console.log('Tag updated successfully');
+            } else {
+              alert('Error al actualizar etiqueta: ' + result.error);
+              // Revert UI
+              if (isSelected) {
+                element.classList.add('selected');
+                element.textContent = tag + ' ✓';
+              } else {
+                element.classList.remove('selected');
+                element.textContent = tag;
+              }
+            }
+          } catch (error) {
+            console.error('Error updating tag:', error);
+            alert('Error de conexión al actualizar etiqueta');
+          }
+        }
+
+        function removeTag(tagToRemove, element) {
+          const attendeeItem = element.closest('.attendee-item');
+          const email = attendeeItem.querySelector('.attendee-email').textContent;
+          const contactData = contactsData[email];
+          
+          if (!contactData) return;
+          
+          const newTags = contactData.tags.filter(tag => tag !== tagToRemove);
+          
+          // Update in backend
+          fetch('/api/contacts/' + contactData.id + '/tags', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              tags: newTags,
+              notes: contactData.notes
+            })
+          }).then(response => response.json())
+          .then(result => {
+            if (result.success) {
+              // Update local data
+              contactData.tags = newTags;
+              
+              // Update UI
+              const tagsContainer = document.getElementById('tags-' + email.replace(/[^a-zA-Z0-9]/g, ''));
+              tagsContainer.innerHTML = renderContactTags(newTags);
+              
+              // Update dropdown
+              const dropdown = document.getElementById('dropdown-' + email.replace(/[^a-zA-Z0-9]/g, ''));
+              dropdown.innerHTML = renderTagOptions(email, newTags);
+            } else {
+              alert('Error al eliminar etiqueta: ' + result.error);
+            }
+          }).catch(error => {
+            console.error('Error removing tag:', error);
+            alert('Error de conexión al eliminar etiqueta');
+          });
         }
 
         function closeEventModal() {
@@ -1855,68 +2342,6 @@ app.get('/', (req, res) => {
           populateEventModal(currentEventData);
         }
 
-        async function toggleLeadStatus(email, isLead) {
-          try {
-            // First, find or create the contact
-            const contactResponse = await fetch('/api/contacts');
-            const contactResult = await contactResponse.json();
-            
-            let contactId = null;
-            if (contactResult.success) {
-              const existingContact = contactResult.data.find(c => c.email === email);
-              if (existingContact) {
-                contactId = existingContact.id;
-              }
-            }
-            
-            if (!contactId) {
-              alert('Contacto no encontrado en la base de datos');
-              return;
-            }
-            
-            // Update lead status
-            const response = await fetch('/api/contacts/' + contactId + '/lead', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                isLead: isLead,
-                notes: ''
-              })
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-              console.log('Lead status updated:', result.message);
-              // Update visual indicator
-              const attendeeItem = event.target.closest('.attendee-item');
-              if (isLead) {
-                if (!attendeeItem.querySelector('.lead-badge')) {
-                  const leadBadge = document.createElement('span');
-                  leadBadge.className = 'lead-badge';
-                  leadBadge.textContent = 'Lead';
-                  attendeeItem.querySelector('div:last-child').appendChild(leadBadge);
-                }
-              } else {
-                const leadBadge = attendeeItem.querySelector('.lead-badge');
-                if (leadBadge) {
-                  leadBadge.remove();
-                }
-              }
-            } else {
-              alert('Error al actualizar estado de lead: ' + result.error);
-              // Revert checkbox
-              event.target.checked = !isLead;
-            }
-          } catch (error) {
-            console.error('Error toggling lead status:', error);
-            alert('Error de conexión al actualizar estado de lead');
-            // Revert checkbox
-            event.target.checked = !isLead;
-          }
-        }
 
         // Close modal when clicking outside
         window.onclick = function(event) {
@@ -2227,19 +2652,36 @@ app.get('/', (req, res) => {
 
         async function syncContacts() {
           const statusDiv = document.getElementById('syncStatus');
-          statusDiv.innerHTML = '<div class="status loading">Sincronizando contactos...</div>';
+          statusDiv.innerHTML = '<div class="status loading">Sincronizando contactos con Google Calendar...</div>';
           
           try {
             const response = await fetch('/api/sync', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ days: 7 })
+              headers: { 'Content-Type': 'application/json' }
             });
             
             const result = await response.json();
             
             if (result.success) {
-              statusDiv.innerHTML = '<div class="status success">Sincronización completada: ' + result.message + '</div>';
+              const data = result.data;
+              let message = result.message;
+              
+              if (data.errors && data.errors.length > 0) {
+                message += '<br><br><strong>Errores:</strong><br>' + data.errors.slice(0, 5).join('<br>');
+                if (data.errors.length > 5) {
+                  message += '<br>... y ' + (data.errors.length - 5) + ' más';
+                }
+              }
+              
+              statusDiv.innerHTML = '<div class="status success">' + message + '</div>';
+              
+              // Refresh contacts list if we're on the contacts tab
+              const activeTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab');
+              if (activeTab === 'contacts') {
+                setTimeout(() => {
+                  loadContacts();
+                }, 1000);
+              }
             } else {
               statusDiv.innerHTML = '<div class="status error">Error: ' + result.error + '</div>';
             }
@@ -2260,38 +2702,83 @@ app.get('/', (req, res) => {
               if (result.data.length === 0) {
                 contactsList.innerHTML = '<div class="auth-prompt"><h3>No hay contactos</h3><p>Sincroniza con Google Calendar para ver contactos</p></div>';
               } else {
-                // Separate leads and regular contacts
-                const leads = result.data.filter(contact => contact.is_lead);
-                const regularContacts = result.data.filter(contact => !contact.is_lead);
+                // Organize contacts by tags
+                const contactsByTag = {
+                  'New Lead': [],
+                  'Hot Lead': [],
+                  'Cold Lead': [],
+                  'Client': [],
+                  'Partner': [],
+                  'Prospect': [],
+                  'Untagged': []
+                };
+                
+                result.data.forEach(contact => {
+                  if (!contact.tags || contact.tags.length === 0) {
+                    contactsByTag['Untagged'].push(contact);
+                  } else {
+                    contact.tags.forEach(tag => {
+                      if (contactsByTag[tag]) {
+                        contactsByTag[tag].push(contact);
+                      } else {
+                        // Create new category for custom tags
+                        if (!contactsByTag[tag]) {
+                          contactsByTag[tag] = [];
+                        }
+                        contactsByTag[tag].push(contact);
+                      }
+                    });
+                  }
+                });
                 
                 let html = '';
                 
-                // Show leads section
-                if (leads.length > 0) {
-                  html += '<div style="margin-bottom: 30px;">';
-                  html += '<h3 style="color: #FF6B00; margin-bottom: 15px; font-size: 18px;">🎯 New Leads (' + leads.length + ')</h3>';
-                  html += leads.map(contact => 
-                    '<div class="event-item" style="border-left: 4px solid #FF6B00;">' +
-                      '<div class="event-title">' + contact.email + '</div>' +
-                      '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + contact.meeting_count + ' reuniones</div>' +
-                      (contact.lead_notes ? '<div style="margin-top: 8px; color: #718096; font-size: 14px;">' + contact.lead_notes + '</div>' : '') +
-                    '</div>'
-                  ).join('');
-                  html += '</div>';
-                }
-                
-                // Show regular contacts section
-                if (regularContacts.length > 0) {
-                  html += '<div>';
-                  html += '<h3 style="color: #2d3748; margin-bottom: 15px; font-size: 18px;">👥 Todos los Contactos (' + regularContacts.length + ')</h3>';
-                  html += regularContacts.map(contact => 
-                    '<div class="event-item">' +
-                      '<div class="event-title">' + contact.email + '</div>' +
-                      '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + contact.meeting_count + ' reuniones</div>' +
-                    '</div>'
-                  ).join('');
-                  html += '</div>';
-                }
+                // Show each category
+                Object.keys(contactsByTag).forEach(tag => {
+                  const contacts = contactsByTag[tag];
+                  if (contacts.length > 0) {
+                    const tagIcons = {
+                      'New Lead': '🎯',
+                      'Hot Lead': '🔥',
+                      'Cold Lead': '❄️',
+                      'Client': '💼',
+                      'Partner': '🤝',
+                      'Prospect': '👀',
+                      'Untagged': '📝'
+                    };
+                    
+                    const tagColors = {
+                      'New Lead': '#FF6B00',
+                      'Hot Lead': '#e53e3e',
+                      'Cold Lead': '#4299e1',
+                      'Client': '#38a169',
+                      'Partner': '#805ad5',
+                      'Prospect': '#d69e2e',
+                      'Untagged': '#718096'
+                    };
+                    
+                    const icon = tagIcons[tag] || '🏷️';
+                    const color = tagColors[tag] || '#718096';
+                    
+                    html += '<div style="margin-bottom: 25px;">';
+                    html += '<h3 style="color: ' + color + '; margin-bottom: 15px; font-size: 18px;">' + icon + ' ' + tag + ' (' + contacts.length + ')</h3>';
+                    
+                    html += contacts.map(contact => {
+                      const borderColor = tag === 'Untagged' ? '#e2e8f0' : color;
+                      return '<div class="event-item" style="border-left: 4px solid ' + borderColor + ';">' +
+                        '<div class="event-title">' + contact.email + '</div>' +
+                        '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + contact.meeting_count + ' reuniones</div>' +
+                        (contact.tags && contact.tags.length > 0 ? 
+                          '<div class="contact-tags" style="margin-top: 8px;">' + 
+                            contact.tags.map(t => '<span class="tag-badge ' + t.toLowerCase().replace(/\s+/g, '-') + '">' + t + '</span>').join('') +
+                          '</div>' : '') +
+                        (contact.notes ? '<div style="margin-top: 8px; color: #718096; font-size: 14px;">' + contact.notes + '</div>' : '') +
+                      '</div>';
+                    }).join('');
+                    
+                    html += '</div>';
+                  }
+                });
                 
                 contactsList.innerHTML = html;
               }
