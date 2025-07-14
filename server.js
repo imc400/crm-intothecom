@@ -34,6 +34,8 @@ async function initDatabase() {
         first_seen DATE NOT NULL,
         last_seen DATE NOT NULL,
         meeting_count INTEGER DEFAULT 1,
+        is_lead BOOLEAN DEFAULT FALSE,
+        lead_notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -43,9 +45,13 @@ async function initDatabase() {
         id SERIAL PRIMARY KEY,
         google_event_id VARCHAR(255) UNIQUE NOT NULL,
         summary TEXT,
+        description TEXT,
         start_time TIMESTAMP,
         end_time TIMESTAMP,
         attendees_count INTEGER DEFAULT 0,
+        attendees_emails TEXT,
+        hangout_link TEXT,
+        notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -111,6 +117,129 @@ app.get('/api/contacts/new', async (req, res) => {
   }
 });
 
+// Update contact lead status
+app.post('/api/contacts/:contactId/lead', async (req, res) => {
+  const { contactId } = req.params;
+  const { isLead, notes } = req.body;
+  
+  try {
+    const result = await pool.query(
+      'UPDATE contacts SET is_lead = $1, lead_notes = $2 WHERE id = $3 RETURNING *',
+      [isLead, notes || '', contactId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Contact not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: `Contact ${isLead ? 'marked as lead' : 'unmarked as lead'}`
+    });
+  } catch (error) {
+    console.error('Error updating lead status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update lead status'
+    });
+  }
+});
+
+// Get leads only
+app.get('/api/leads', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM contacts WHERE is_lead = true ORDER BY created_at DESC');
+    res.json({
+      success: true,
+      data: result.rows,
+      count: result.rows.length
+    });
+  } catch (error) {
+    console.error('Error fetching leads:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch leads'
+    });
+  }
+});
+
+// Get event details
+app.get('/api/events/:eventId', async (req, res) => {
+  const { eventId } = req.params;
+  
+  try {
+    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+    const response = await calendar.events.get({
+      calendarId: 'primary',
+      eventId: eventId
+    });
+    
+    const event = response.data;
+    
+    res.json({
+      success: true,
+      data: event
+    });
+  } catch (error) {
+    console.error('Error fetching event details:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch event details'
+    });
+  }
+});
+
+// Update event
+app.post('/api/events/:eventId', async (req, res) => {
+  const { eventId } = req.params;
+  const { summary, description, attendees, notes } = req.body;
+  
+  try {
+    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+    
+    // Get current event
+    const currentEvent = await calendar.events.get({
+      calendarId: 'primary',
+      eventId: eventId
+    });
+    
+    // Update event
+    const updateData = {
+      summary: summary || currentEvent.data.summary,
+      description: description || currentEvent.data.description,
+      attendees: attendees || currentEvent.data.attendees
+    };
+    
+    const response = await calendar.events.update({
+      calendarId: 'primary',
+      eventId: eventId,
+      requestBody: updateData
+    });
+    
+    // Update local database notes
+    await pool.query(
+      'UPDATE events SET notes = $1 WHERE google_event_id = $2',
+      [notes || '', eventId]
+    );
+    
+    res.json({
+      success: true,
+      data: response.data,
+      message: 'Event updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating event:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update event'
+    });
+  }
+});
+
 // Manual sync endpoint (mock for now)
 app.post('/api/sync', async (req, res) => {
   try {
@@ -142,7 +271,7 @@ app.post('/api/sync', async (req, res) => {
 });
 
 // Google Calendar Authentication
-const SCOPES = ['https://www.googleapis.com/auth/calendar.readonly'];
+const SCOPES = ['https://www.googleapis.com/auth/calendar'];
 let oAuth2Client = null;
 let storedTokens = null;
 
@@ -889,6 +1018,214 @@ app.get('/', (req, res) => {
           background: #cbd5e0;
         }
         
+        /* Modal styles */
+        .modal {
+          display: none;
+          position: fixed;
+          z-index: 1000;
+          left: 0;
+          top: 0;
+          width: 100%;
+          height: 100%;
+          background-color: rgba(0,0,0,0.5);
+        }
+        
+        .modal-content {
+          background-color: #fff;
+          margin: 5% auto;
+          padding: 0;
+          border-radius: 12px;
+          width: 90%;
+          max-width: 600px;
+          max-height: 90vh;
+          overflow-y: auto;
+          box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        
+        .modal-header {
+          background: #f7fafc;
+          padding: 20px 30px;
+          border-bottom: 1px solid #e2e8f0;
+          border-radius: 12px 12px 0 0;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .modal-title {
+          font-size: 24px;
+          font-weight: 600;
+          color: #1a202c;
+          margin: 0;
+        }
+        
+        .close-btn {
+          background: none;
+          border: none;
+          font-size: 24px;
+          cursor: pointer;
+          color: #718096;
+          padding: 0;
+          width: 30px;
+          height: 30px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border-radius: 50%;
+          transition: all 0.2s;
+        }
+        
+        .close-btn:hover {
+          background: #e2e8f0;
+          color: #2d3748;
+        }
+        
+        .modal-body {
+          padding: 30px;
+        }
+        
+        .form-group {
+          margin-bottom: 20px;
+        }
+        
+        .form-label {
+          display: block;
+          margin-bottom: 8px;
+          font-weight: 500;
+          color: #2d3748;
+        }
+        
+        .form-input {
+          width: 100%;
+          padding: 12px;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          font-size: 14px;
+          color: #2d3748;
+        }
+        
+        .form-input:focus {
+          outline: none;
+          border-color: #FF6B00;
+          box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.1);
+        }
+        
+        .form-textarea {
+          width: 100%;
+          padding: 12px;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          font-size: 14px;
+          color: #2d3748;
+          min-height: 100px;
+          resize: vertical;
+        }
+        
+        .form-textarea:focus {
+          outline: none;
+          border-color: #FF6B00;
+          box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.1);
+        }
+        
+        .attendees-list {
+          background: #f7fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          padding: 15px;
+          margin-bottom: 15px;
+        }
+        
+        .attendee-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 0;
+          border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .attendee-item:last-child {
+          border-bottom: none;
+        }
+        
+        .attendee-email {
+          font-weight: 500;
+          color: #2d3748;
+        }
+        
+        .attendee-name {
+          color: #718096;
+          font-size: 14px;
+        }
+        
+        .lead-badge {
+          background: #FF6B00;
+          color: white;
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+          font-weight: 500;
+        }
+        
+        .domain-badge {
+          background: #e2e8f0;
+          color: #4a5568;
+          padding: 2px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+          font-weight: 500;
+        }
+        
+        .lead-toggle {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 10px;
+        }
+        
+        .lead-checkbox {
+          width: 16px;
+          height: 16px;
+          cursor: pointer;
+        }
+        
+        .modal-footer {
+          background: #f7fafc;
+          padding: 20px 30px;
+          border-top: 1px solid #e2e8f0;
+          border-radius: 0 0 12px 12px;
+          display: flex;
+          justify-content: flex-end;
+          gap: 12px;
+        }
+        
+        .btn-cancel {
+          background: #e2e8f0;
+          color: #4a5568;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-weight: 500;
+        }
+        
+        .btn-cancel:hover {
+          background: #cbd5e0;
+        }
+        
+        .btn-save {
+          background: #FF6B00;
+          color: white;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-weight: 500;
+        }
+        
+        .btn-save:hover {
+          background: #E55A00;
+        }
+        
         @media (max-width: 768px) {
           .sidebar {
             width: 100%;
@@ -982,6 +1319,55 @@ app.get('/', (req, res) => {
                 Sincronizar Ahora
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Event Details Modal -->
+      <div id="eventModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3 class="modal-title">Detalles del Evento</h3>
+            <button class="close-btn" onclick="closeEventModal()">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">Título del Evento</label>
+              <input type="text" id="eventTitle" class="form-input" placeholder="Título del evento">
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Descripción</label>
+              <textarea id="eventDescription" class="form-textarea" placeholder="Descripción del evento"></textarea>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Fecha y Hora</label>
+              <div id="eventDateTime" class="form-input" style="background: #f7fafc; border: 1px solid #e2e8f0;"></div>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Asistentes</label>
+              <div id="attendeesList" class="attendees-list"></div>
+              <div style="margin-top: 10px;">
+                <input type="email" id="newAttendeeEmail" class="form-input" placeholder="email@ejemplo.com" style="margin-bottom: 10px;">
+                <button class="btn btn-secondary" onclick="addAttendee()">Agregar Asistente</button>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Notas Internas</label>
+              <textarea id="eventNotes" class="form-textarea" placeholder="Notas sobre esta reunión..."></textarea>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Enlace de Reunión</label>
+              <div id="meetingLink" style="padding: 10px; background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 6px;"></div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-cancel" onclick="closeEventModal()">Cancelar</button>
+            <button class="btn-save" onclick="saveEventChanges()">Guardar Cambios</button>
           </div>
         </div>
       </div>
@@ -1281,8 +1667,263 @@ app.get('/', (req, res) => {
           });
         }
 
-        function showEventDetails(eventId) {
-          alert('Detalles del evento: ' + eventId);
+        let currentEventId = null;
+        let currentEventData = null;
+
+        async function showEventDetails(eventId) {
+          try {
+            currentEventId = eventId;
+            
+            // Show loading state
+            const modal = document.getElementById('eventModal');
+            modal.style.display = 'block';
+            
+            // Fetch event details
+            const response = await fetch('/api/events/' + eventId);
+            const result = await response.json();
+            
+            if (result.success) {
+              currentEventData = result.data;
+              populateEventModal(result.data);
+            } else {
+              alert('Error al cargar detalles del evento: ' + result.error);
+              closeEventModal();
+            }
+          } catch (error) {
+            console.error('Error loading event details:', error);
+            alert('Error de conexión al cargar detalles del evento');
+            closeEventModal();
+          }
+        }
+
+        function populateEventModal(event) {
+          document.getElementById('eventTitle').value = event.summary || '';
+          document.getElementById('eventDescription').value = event.description || '';
+          document.getElementById('eventNotes').value = event.notes || '';
+          
+          // Format date and time
+          const startDate = new Date(event.start.dateTime || event.start.date);
+          const endDate = new Date(event.end.dateTime || event.end.date);
+          
+          if (event.start.dateTime) {
+            document.getElementById('eventDateTime').textContent = 
+              startDate.toLocaleString('es-ES', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              }) + ' - ' + endDate.toLocaleTimeString('es-ES', {
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+          } else {
+            document.getElementById('eventDateTime').textContent = 
+              startDate.toLocaleDateString('es-ES', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+              }) + ' (Todo el día)';
+          }
+          
+          // Populate attendees
+          const attendeesList = document.getElementById('attendeesList');
+          attendeesList.innerHTML = '';
+          
+          if (event.attendees && event.attendees.length > 0) {
+            event.attendees.forEach(attendee => {
+              const attendeeDiv = document.createElement('div');
+              attendeeDiv.className = 'attendee-item';
+              
+              const email = attendee.email || '';
+              const domain = email.includes('@') ? email.split('@')[1] : '';
+              const isExternalDomain = domain && !domain.includes('intothecom');
+              
+              attendeeDiv.innerHTML = 
+                '<div>' +
+                  '<div class="attendee-email">' + email + '</div>' +
+                  '<div class="attendee-name">' + (attendee.displayName || 'Sin nombre') + '</div>' +
+                '</div>' +
+                '<div>' +
+                  (isExternalDomain ? '<span class="domain-badge">Externo</span>' : '') +
+                  '<div class="lead-toggle">' +
+                    '<input type="checkbox" class="lead-checkbox" ' +
+                           (attendee.isLead ? 'checked' : '') + ' ' +
+                           'onchange="toggleLeadStatus(\'' + email + '\', this.checked)">' +
+                    '<label>New Lead</label>' +
+                  '</div>' +
+                '</div>';
+              
+              attendeesList.appendChild(attendeeDiv);
+            });
+          } else {
+            attendeesList.innerHTML = '<div style="text-align: center; color: #718096;">No hay asistentes</div>';
+          }
+          
+          // Meeting link
+          const meetingLink = document.getElementById('meetingLink');
+          if (event.hangoutLink) {
+            meetingLink.innerHTML = '<a href="' + event.hangoutLink + '" target="_blank" style="color: #FF6B00; text-decoration: none;">🔗 Unirse a la reunión</a>';
+          } else {
+            meetingLink.innerHTML = '<span style="color: #718096;">No hay enlace de reunión</span>';
+          }
+        }
+
+        function closeEventModal() {
+          document.getElementById('eventModal').style.display = 'none';
+          currentEventId = null;
+          currentEventData = null;
+        }
+
+        async function saveEventChanges() {
+          if (!currentEventId) return;
+          
+          const title = document.getElementById('eventTitle').value;
+          const description = document.getElementById('eventDescription').value;
+          const notes = document.getElementById('eventNotes').value;
+          
+          // Collect attendees
+          const attendeeEmails = [];
+          const attendeeElements = document.querySelectorAll('.attendee-item');
+          attendeeElements.forEach(element => {
+            const email = element.querySelector('.attendee-email').textContent;
+            if (email) attendeeEmails.push({ email: email });
+          });
+          
+          try {
+            const response = await fetch('/api/events/' + currentEventId, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                summary: title,
+                description: description,
+                attendees: attendeeEmails,
+                notes: notes
+              })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              alert('Evento actualizado exitosamente');
+              closeEventModal();
+              // Refresh calendar view
+              refreshData();
+            } else {
+              alert('Error al actualizar evento: ' + result.error);
+            }
+          } catch (error) {
+            console.error('Error saving event:', error);
+            alert('Error de conexión al guardar cambios');
+          }
+        }
+
+        function addAttendee() {
+          const email = document.getElementById('newAttendeeEmail').value.trim();
+          if (!email) return;
+          
+          // Validate email
+          const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          if (!emailRegex.test(email)) {
+            alert('Por favor ingresa un email válido');
+            return;
+          }
+          
+          // Check if already exists
+          const existingAttendees = document.querySelectorAll('.attendee-email');
+          for (let attendee of existingAttendees) {
+            if (attendee.textContent === email) {
+              alert('Este asistente ya está en la lista');
+              return;
+            }
+          }
+          
+          // Add to current event data
+          if (!currentEventData.attendees) {
+            currentEventData.attendees = [];
+          }
+          currentEventData.attendees.push({ email: email });
+          
+          // Clear input
+          document.getElementById('newAttendeeEmail').value = '';
+          
+          // Re-populate modal
+          populateEventModal(currentEventData);
+        }
+
+        async function toggleLeadStatus(email, isLead) {
+          try {
+            // First, find or create the contact
+            const contactResponse = await fetch('/api/contacts');
+            const contactResult = await contactResponse.json();
+            
+            let contactId = null;
+            if (contactResult.success) {
+              const existingContact = contactResult.data.find(c => c.email === email);
+              if (existingContact) {
+                contactId = existingContact.id;
+              }
+            }
+            
+            if (!contactId) {
+              alert('Contacto no encontrado en la base de datos');
+              return;
+            }
+            
+            // Update lead status
+            const response = await fetch('/api/contacts/' + contactId + '/lead', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                isLead: isLead,
+                notes: ''
+              })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              console.log('Lead status updated:', result.message);
+              // Update visual indicator
+              const attendeeItem = event.target.closest('.attendee-item');
+              if (isLead) {
+                if (!attendeeItem.querySelector('.lead-badge')) {
+                  const leadBadge = document.createElement('span');
+                  leadBadge.className = 'lead-badge';
+                  leadBadge.textContent = 'Lead';
+                  attendeeItem.querySelector('div:last-child').appendChild(leadBadge);
+                }
+              } else {
+                const leadBadge = attendeeItem.querySelector('.lead-badge');
+                if (leadBadge) {
+                  leadBadge.remove();
+                }
+              }
+            } else {
+              alert('Error al actualizar estado de lead: ' + result.error);
+              // Revert checkbox
+              event.target.checked = !isLead;
+            }
+          } catch (error) {
+            console.error('Error toggling lead status:', error);
+            alert('Error de conexión al actualizar estado de lead');
+            // Revert checkbox
+            event.target.checked = !isLead;
+          }
+        }
+
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+          const modal = document.getElementById('eventModal');
+          if (event.target === modal) {
+            closeEventModal();
+          }
         }
 
         // Navigation functions
@@ -1619,12 +2260,40 @@ app.get('/', (req, res) => {
               if (result.data.length === 0) {
                 contactsList.innerHTML = '<div class="auth-prompt"><h3>No hay contactos</h3><p>Sincroniza con Google Calendar para ver contactos</p></div>';
               } else {
-                contactsList.innerHTML = result.data.map(contact => 
-                  '<div class="event-item">' +
-                    '<div class="event-title">' + contact.email + '</div>' +
-                    '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + contact.meeting_count + ' reuniones</div>' +
-                  '</div>'
-                ).join('');
+                // Separate leads and regular contacts
+                const leads = result.data.filter(contact => contact.is_lead);
+                const regularContacts = result.data.filter(contact => !contact.is_lead);
+                
+                let html = '';
+                
+                // Show leads section
+                if (leads.length > 0) {
+                  html += '<div style="margin-bottom: 30px;">';
+                  html += '<h3 style="color: #FF6B00; margin-bottom: 15px; font-size: 18px;">🎯 New Leads (' + leads.length + ')</h3>';
+                  html += leads.map(contact => 
+                    '<div class="event-item" style="border-left: 4px solid #FF6B00;">' +
+                      '<div class="event-title">' + contact.email + '</div>' +
+                      '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + contact.meeting_count + ' reuniones</div>' +
+                      (contact.lead_notes ? '<div style="margin-top: 8px; color: #718096; font-size: 14px;">' + contact.lead_notes + '</div>' : '') +
+                    '</div>'
+                  ).join('');
+                  html += '</div>';
+                }
+                
+                // Show regular contacts section
+                if (regularContacts.length > 0) {
+                  html += '<div>';
+                  html += '<h3 style="color: #2d3748; margin-bottom: 15px; font-size: 18px;">👥 Todos los Contactos (' + regularContacts.length + ')</h3>';
+                  html += regularContacts.map(contact => 
+                    '<div class="event-item">' +
+                      '<div class="event-title">' + contact.email + '</div>' +
+                      '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + contact.meeting_count + ' reuniones</div>' +
+                    '</div>'
+                  ).join('');
+                  html += '</div>';
+                }
+                
+                contactsList.innerHTML = html;
               }
             } else {
               contactsList.innerHTML = '<div class="status error">Error: ' + result.error + '</div>';
