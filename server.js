@@ -302,8 +302,22 @@ app.get('/api/calendar/events', async (req, res) => {
         break;
       case 'month':
       default:
-        timeMin = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
-        timeMax = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        // For month view, we need to include days from adjacent weeks
+        const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        
+        // Start from the first day of the week containing the first day of the month
+        const startOfMonthView = new Date(firstDayOfMonth);
+        startOfMonthView.setDate(startOfMonthView.getDate() - firstDayOfMonth.getDay());
+        startOfMonthView.setHours(0, 0, 0, 0);
+        
+        // End on the last day of the week containing the last day of the month
+        const endOfMonthView = new Date(lastDayOfMonth);
+        endOfMonthView.setDate(endOfMonthView.getDate() + (6 - lastDayOfMonth.getDay()));
+        endOfMonthView.setHours(23, 59, 59, 999);
+        
+        timeMin = startOfMonthView;
+        timeMax = endOfMonthView;
         break;
     }
     
