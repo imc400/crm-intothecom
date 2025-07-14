@@ -256,15 +256,7 @@ app.get('/api/contacts/tag/:tag', async (req, res) => {
 // Get available tags
 app.get('/api/tags', async (req, res) => {
   try {
-    const result = await pool.query(`
-      SELECT DISTINCT unnest(tags) as tag, COUNT(*) as count
-      FROM contacts 
-      WHERE array_length(tags, 1) > 0
-      GROUP BY tag
-      ORDER BY count DESC, tag ASC
-    `);
-    
-    // Add predefined tags that should always be available
+    // Start with predefined tags
     const predefinedTags = [
       { tag: 'New Lead', count: 0 },
       { tag: 'Hot Lead', count: 0 },
@@ -274,12 +266,35 @@ app.get('/api/tags', async (req, res) => {
       { tag: 'Prospect', count: 0 }
     ];
     
+    // Try to get existing tags from database
+    let existingTags = [];
+    try {
+      // First check if contacts table exists and has data
+      const tableCheck = await pool.query(`
+        SELECT COUNT(*) as count FROM contacts
+      `);
+      
+      if (tableCheck.rows[0].count > 0) {
+        const result = await pool.query(`
+          SELECT DISTINCT unnest(tags) as tag, COUNT(*) as count
+          FROM contacts 
+          WHERE tags IS NOT NULL AND array_length(tags, 1) > 0
+          GROUP BY tag
+          ORDER BY count DESC, tag ASC
+        `);
+        existingTags = result.rows || [];
+      }
+    } catch (dbError) {
+      console.log('Database query for existing tags failed, using predefined tags only:', dbError.message);
+      existingTags = [];
+    }
+    
     // Merge with existing tags
-    const existingTags = result.rows.map(row => row.tag);
-    const allTags = [...result.rows];
+    const existingTagNames = existingTags.map(row => row.tag);
+    const allTags = [...existingTags];
     
     for (const predefined of predefinedTags) {
-      if (!existingTags.includes(predefined.tag)) {
+      if (!existingTagNames.includes(predefined.tag)) {
         allTags.push(predefined);
       }
     }
@@ -290,9 +305,18 @@ app.get('/api/tags', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching tags:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch tags'
+    
+    // Fallback to predefined tags if everything fails
+    res.json({
+      success: true,
+      data: [
+        { tag: 'New Lead', count: 0 },
+        { tag: 'Hot Lead', count: 0 },
+        { tag: 'Cold Lead', count: 0 },
+        { tag: 'Client', count: 0 },
+        { tag: 'Partner', count: 0 },
+        { tag: 'Prospect', count: 0 }
+      ]
     });
   }
 });
@@ -302,6 +326,23 @@ app.get('/api/events/:eventId', async (req, res) => {
   const { eventId } = req.params;
   
   try {
+    if (!oAuth2Client) {
+      return res.status(500).json({
+        success: false,
+        error: 'Google Calendar client not configured'
+      });
+    }
+    
+    if (!storedTokens) {
+      return res.status(401).json({
+        success: false,
+        error: 'Google Calendar not authenticated'
+      });
+    }
+    
+    // Set credentials to ensure they're current
+    oAuth2Client.setCredentials(storedTokens);
+    
     const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
     const response = await calendar.events.get({
       calendarId: 'primary',
@@ -310,16 +351,41 @@ app.get('/api/events/:eventId', async (req, res) => {
     
     const event = response.data;
     
+    // Get notes from local database with fallback
+    try {
+      const dbResult = await pool.query('SELECT notes FROM events WHERE google_event_id = $1', [eventId]);
+      if (dbResult.rows.length > 0) {
+        event.notes = dbResult.rows[0].notes;
+      } else {
+        event.notes = '';
+      }
+    } catch (dbError) {
+      console.log('Could not fetch notes from database:', dbError.message);
+      event.notes = '';
+    }
+    
     res.json({
       success: true,
       data: event
     });
   } catch (error) {
     console.error('Error fetching event details:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch event details'
-    });
+    if (error.code === 401 || error.code === 403) {
+      // Clear expired tokens
+      storedTokens = null;
+      if (oAuth2Client) {
+        oAuth2Client.setCredentials({});
+      }
+      res.status(401).json({
+        success: false,
+        error: 'Google Calendar authentication expired'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch event details: ' + error.message
+      });
+    }
   }
 });
 
@@ -2177,25 +2243,53 @@ app.get('/', (req, res) => {
 
         async function loadTagsAndContacts() {
           try {
-            // Load available tags
-            const tagsResponse = await fetch('/api/tags');
-            const tagsResult = await tagsResponse.json();
-            if (tagsResult.success) {
-              availableTags = tagsResult.data;
+            // Load available tags with fallback
+            try {
+              const tagsResponse = await fetch('/api/tags');
+              const tagsResult = await tagsResponse.json();
+              if (tagsResult.success) {
+                availableTags = tagsResult.data;
+              } else {
+                // Fallback to predefined tags
+                availableTags = [
+                  { tag: 'New Lead', count: 0 },
+                  { tag: 'Hot Lead', count: 0 },
+                  { tag: 'Cold Lead', count: 0 },
+                  { tag: 'Client', count: 0 },
+                  { tag: 'Partner', count: 0 },
+                  { tag: 'Prospect', count: 0 }
+                ];
+              }
+            } catch (tagError) {
+              console.error('Error loading tags, using fallback:', tagError);
+              // Fallback to predefined tags
+              availableTags = [
+                { tag: 'New Lead', count: 0 },
+                { tag: 'Hot Lead', count: 0 },
+                { tag: 'Cold Lead', count: 0 },
+                { tag: 'Client', count: 0 },
+                { tag: 'Partner', count: 0 },
+                { tag: 'Prospect', count: 0 }
+              ];
             }
             
             // Load all contacts to get their current tags
-            const contactsResponse = await fetch('/api/contacts');
-            const contactsResult = await contactsResponse.json();
-            if (contactsResult.success) {
+            try {
+              const contactsResponse = await fetch('/api/contacts');
+              const contactsResult = await contactsResponse.json();
+              if (contactsResult.success) {
+                contactsData = {};
+                contactsResult.data.forEach(contact => {
+                  contactsData[contact.email] = {
+                    id: contact.id,
+                    tags: contact.tags || [],
+                    notes: contact.notes || ''
+                  };
+                });
+              }
+            } catch (contactError) {
+              console.error('Error loading contacts:', contactError);
               contactsData = {};
-              contactsResult.data.forEach(contact => {
-                contactsData[contact.email] = {
-                  id: contact.id,
-                  tags: contact.tags || [],
-                  notes: contact.notes || ''
-                };
-              });
             }
           } catch (error) {
             console.error('Error loading tags and contacts:', error);
