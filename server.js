@@ -1,9 +1,7 @@
-import express from 'express';
-import cors from 'cors';
-import * as dotenv from 'dotenv';
-import { SyncService } from './services/syncService';
-
-dotenv.config();
+const express = require('express');
+const cors = require('cors');
+const { Pool } = require('pg');
+require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,6 +9,48 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Database connection
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+});
+
+// Initialize database
+async function initDatabase() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS contacts (
+        id SERIAL PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        name VARCHAR(255),
+        first_seen DATE NOT NULL,
+        last_seen DATE NOT NULL,
+        meeting_count INTEGER DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS events (
+        id SERIAL PRIMARY KEY,
+        google_event_id VARCHAR(255) UNIQUE NOT NULL,
+        summary TEXT,
+        start_time TIMESTAMP,
+        end_time TIMESTAMP,
+        attendees_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    console.log('Database initialized successfully');
+  } catch (error) {
+    console.error('Database initialization error:', error);
+  }
+}
+
+// Initialize database on startup
+initDatabase();
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -24,14 +64,12 @@ app.get('/health', (req, res) => {
 
 // Get all contacts
 app.get('/api/contacts', async (req, res) => {
-  const syncService = new SyncService();
-  
   try {
-    const contacts = await syncService.getContacts();
+    const result = await pool.query('SELECT * FROM contacts ORDER BY created_at DESC');
     res.json({
       success: true,
-      data: contacts,
-      count: contacts.length
+      data: result.rows,
+      count: result.rows.length
     });
   } catch (error) {
     console.error('Error fetching contacts:', error);
@@ -39,22 +77,22 @@ app.get('/api/contacts', async (req, res) => {
       success: false,
       error: 'Failed to fetch contacts'
     });
-  } finally {
-    await syncService.close();
   }
 });
 
 // Get new contacts (from last N days)
 app.get('/api/contacts/new', async (req, res) => {
-  const days = parseInt(req.query.days as string) || 7;
-  const syncService = new SyncService();
+  const days = parseInt(req.query.days) || 7;
   
   try {
-    const contacts = await syncService.getNewContacts(days);
+    const result = await pool.query(
+      'SELECT * FROM contacts WHERE created_at >= NOW() - INTERVAL \'$1 days\' ORDER BY created_at DESC',
+      [days]
+    );
     res.json({
       success: true,
-      data: contacts,
-      count: contacts.length,
+      data: result.rows,
+      count: result.rows.length,
       days
     });
   } catch (error) {
@@ -63,20 +101,23 @@ app.get('/api/contacts/new', async (req, res) => {
       success: false,
       error: 'Failed to fetch new contacts'
     });
-  } finally {
-    await syncService.close();
   }
 });
 
-// Manual sync endpoint
+// Manual sync endpoint (mock for now)
 app.post('/api/sync', async (req, res) => {
-  const days = parseInt(req.body.days) || 7;
-  const syncService = new SyncService();
-  
   try {
-    console.log(`Starting manual sync for last ${days} days...`);
+    console.log('Manual sync requested (mock implementation)');
     
-    const result = await syncService.syncContacts(days);
+    const result = {
+      newContacts: [],
+      totalContacts: 0,
+      eventsProcessed: 0
+    };
+    
+    // Get total contacts count
+    const contacts = await pool.query('SELECT COUNT(*) FROM contacts');
+    result.totalContacts = parseInt(contacts.rows[0].count);
     
     res.json({
       success: true,
@@ -88,10 +129,8 @@ app.post('/api/sync', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Sync failed',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: error.message
     });
-  } finally {
-    await syncService.close();
   }
 });
 
@@ -163,13 +202,17 @@ app.get('/', (req, res) => {
             const result = await response.json();
             
             if (result.success) {
-              contactsList.innerHTML = result.data.map(contact => 
-                '<div class="contact">' +
-                  '<strong>' + contact.email + '</strong>' +
-                  (contact.name ? ' (' + contact.name + ')' : '') +
-                  '<br><small>' + contact.meeting_count + ' meetings | Last seen: ' + contact.last_seen + '</small>' +
-                '</div>'
-              ).join('');
+              if (result.data.length === 0) {
+                contactsList.innerHTML = '<div class="contact">No contacts found. Try syncing with Google Calendar first.</div>';
+              } else {
+                contactsList.innerHTML = result.data.map(contact => 
+                  '<div class="contact">' +
+                    '<strong>' + contact.email + '</strong>' +
+                    (contact.name ? ' (' + contact.name + ')' : '') +
+                    '<br><small>' + contact.meeting_count + ' meetings | Last seen: ' + contact.last_seen + '</small>' +
+                  '</div>'
+                ).join('');
+              }
             } else {
               contactsList.innerHTML = '<div class="error">Failed to load contacts</div>';
             }
@@ -202,4 +245,4 @@ process.on('SIGTERM', () => {
   process.exit(0);
 });
 
-export default app;
+module.exports = app;
