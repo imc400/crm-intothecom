@@ -524,11 +524,30 @@ app.get('/', (req, res) => {
         }
         
         .week-view {
+          display: flex;
+          flex-direction: column;
+          background: #e2e8f0;
+          border: 1px solid #e2e8f0;
+          height: 100%;
+        }
+        
+        .week-header {
           display: grid;
           grid-template-columns: 60px repeat(7, 1fr);
           gap: 1px;
           background: #e2e8f0;
-          border: 1px solid #e2e8f0;
+          position: sticky;
+          top: 0;
+          z-index: 10;
+        }
+        
+        .week-body {
+          display: grid;
+          grid-template-columns: 60px repeat(7, 1fr);
+          gap: 1px;
+          background: #e2e8f0;
+          flex: 1;
+          overflow-y: auto;
         }
         
         .time-slot {
@@ -743,20 +762,17 @@ app.get('/', (req, res) => {
         <div class="sidebar">
           <div class="sidebar-header">
             <div class="logo">
-              <img src="/negro sin fondo 72ppi.png" alt="IntoTheCom" onerror="this.style.display='none'">
+              <img src="/Blanco sin fondo 72ppi.png" alt="IntoTheCom" onerror="this.style.display='none'">
             </div>
           </div>
           <nav class="nav-menu">
             <a href="#" class="nav-item active" data-tab="calendar">
-              <span class="nav-icon">CAL</span>
               <span>Calendario</span>
             </a>
             <a href="#" class="nav-item" data-tab="contacts">
-              <span class="nav-icon">CON</span>
               <span>Contactos</span>
             </a>
             <a href="#" class="nav-item" data-tab="sync">
-              <span class="nav-icon">SIN</span>
               <span>Sincronización</span>
             </a>
           </nav>
@@ -959,18 +975,35 @@ app.get('/', (req, res) => {
         }
 
         function renderWeekView(events) {
-          const timeSlots = Array.from({length: 24}, (_, i) => i + ':00');
           const weekDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+          
+          // Find the earliest event to determine starting hour
+          let earliestHour = 24;
+          if (events.length > 0) {
+            earliestHour = Math.min(...events.map(event => {
+              const eventDate = new Date(event.start.dateTime || event.start.date);
+              return eventDate.getHours();
+            }));
+            // Start one hour before the earliest event, but not before 6 AM
+            earliestHour = Math.max(6, earliestHour - 1);
+          } else {
+            earliestHour = 8; // Default to 8 AM if no events
+          }
+          
+          const timeSlots = Array.from({length: 24 - earliestHour}, (_, i) => (earliestHour + i) + ':00');
           
           let html = '<div class="week-view">';
           
-          // Header row
+          // Fixed header with days
+          html += '<div class="week-header">';
           html += '<div class="time-slot"></div>';
           weekDays.forEach(day => {
             html += '<div class="day-header">' + day + '</div>';
           });
+          html += '</div>';
           
-          // Time slots and events
+          // Scrollable body with time slots and events
+          html += '<div class="week-body">';
           timeSlots.forEach(time => {
             html += '<div class="time-slot">' + time + '</div>';
             for (let day = 0; day < 7; day++) {
@@ -996,6 +1029,7 @@ app.get('/', (req, res) => {
               html += '</div>';
             }
           });
+          html += '</div>';
           
           html += '</div>';
           return html;
