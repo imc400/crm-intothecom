@@ -608,6 +608,22 @@ app.get('/', (req, res) => {
           background: #E55A00;
         }
         
+        .today-btn {
+          background: #4CAF50;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          padding: 8px 16px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 500;
+          margin-left: 10px;
+        }
+        
+        .today-btn:hover {
+          background: #45a049;
+        }
+        
         .calendar-title {
           font-size: 18px;
           font-weight: 600;
@@ -730,6 +746,12 @@ app.get('/', (req, res) => {
           padding: 8px;
           position: relative;
           border: 1px solid #e2e8f0;
+          cursor: pointer;
+          transition: background-color 0.2s;
+        }
+        
+        .month-day:hover {
+          background: #f0f9ff;
         }
         
         .month-day-number {
@@ -927,6 +949,7 @@ app.get('/', (req, res) => {
                     <button onclick="navigateDate('prev')" class="nav-btn">‹</button>
                     <div class="calendar-title" id="calendarTitle">Mis Eventos</div>
                     <button onclick="navigateDate('next')" class="nav-btn">›</button>
+                    <button onclick="goToToday()" class="today-btn">Hoy</button>
                   </div>
                   <div class="calendar-nav">
                     <button onclick="showDayView()" class="view-btn" data-view="day">Día</button>
@@ -1270,6 +1293,22 @@ app.get('/', (req, res) => {
           loadCalendarEventsForDate();
         }
 
+        function goToToday() {
+          currentDate = new Date();
+          console.log('Going to today:', currentDate.toDateString());
+          updateCalendarTitle();
+          loadCalendarEventsForDate();
+        }
+
+        function selectDayFromMonth(dateString) {
+          currentDate = new Date(dateString);
+          currentView = 'day';
+          updateViewButtons('day');
+          console.log('Selected day from month view:', currentDate.toDateString());
+          updateCalendarTitle();
+          loadCalendarEventsForDate();
+        }
+
         function updateCalendarTitle() {
           const titleElement = document.getElementById('calendarTitle');
           if (!titleElement) return;
@@ -1448,7 +1487,7 @@ app.get('/', (req, res) => {
             const isCurrentMonth = date.getMonth() === month;
             const dayClass = isCurrentMonth ? 'month-day' : 'month-day other-month';
             
-            html += '<div class="' + dayClass + '">';
+            html += '<div class="' + dayClass + '" onclick="selectDayFromMonth(\'' + date.toISOString().split('T')[0] + '\')">';
             html += '<div class="month-day-number">' + date.getDate() + '</div>';
             
             // Find events for this day
