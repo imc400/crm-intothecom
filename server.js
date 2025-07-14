@@ -1198,11 +1198,12 @@ app.get('/', (req, res) => {
           calendarGrid.innerHTML = '<div class="status loading">Cargando eventos...</div>';
           
           try {
-            const dateParam = currentDate.toISOString().split('T')[0];
+            const dateParam = getLocalDateString(currentDate);
             console.log('Loading events:', {
               view: view,
               date: dateParam,
               currentDate: currentDate.toDateString(),
+              actualDay: currentDate.getDate(),
               forceRefresh: forceRefresh
             });
             const response = await fetch('/api/calendar/events?view=' + view + '&date=' + dateParam);
@@ -1311,14 +1312,24 @@ app.get('/', (req, res) => {
           loadCalendarEventsForDate();
         }
 
+        function getLocalDateString(date) {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          return year + '-' + month + '-' + day;
+        }
+
         function selectDayFromMonth(dateString) {
-          currentDate = new Date(dateString);
+          // Create date from local string to avoid timezone issues
+          const parts = dateString.split('-');
+          currentDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
           currentView = 'day';
           updateViewButtons('day');
           console.log('Selected day from month view:', {
             dateString: dateString,
             selectedDate: currentDate.toDateString(),
-            view: currentView
+            view: currentView,
+            actualDay: currentDate.getDate()
           });
           updateCalendarTitle();
           loadCalendarEventsForDate();
@@ -1371,13 +1382,34 @@ app.get('/', (req, res) => {
             // Day view - filter events for selected date only
             const selectedDateStr = currentDate.toDateString();
             
-            const dayEvents = events.filter(event => {
-              const eventDate = new Date(event.start.dateTime || event.start.date);
-              return eventDate.toDateString() === selectedDateStr;
+            console.log('Day view filtering:', {
+              selectedDate: selectedDateStr,
+              selectedDay: currentDate.getDate(),
+              totalEvents: events.length,
+              eventsData: events.map(e => ({
+                summary: e.summary,
+                start: e.start?.dateTime || e.start?.date,
+                eventDateStr: new Date(e.start?.dateTime || e.start?.date).toDateString()
+              }))
             });
             
+            const dayEvents = events.filter(event => {
+              const eventDate = new Date(event.start.dateTime || event.start.date);
+              const matches = eventDate.toDateString() === selectedDateStr;
+              if (matches) {
+                console.log('Event matches selected day:', {
+                  eventSummary: event.summary,
+                  eventDate: eventDate.toDateString(),
+                  selectedDate: selectedDateStr
+                });
+              }
+              return matches;
+            });
+            
+            console.log('Filtered day events:', dayEvents.length);
+            
             if (dayEvents.length === 0) {
-              calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No tienes eventos programados para este día</p></div>';
+              calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No tienes eventos programados para este día (' + selectedDateStr + ')</p></div>';
               return;
             }
             
@@ -1503,7 +1535,7 @@ app.get('/', (req, res) => {
             const dayClass = isCurrentMonth ? 'month-day' : 'month-day other-month';
             
             html += '<div class="' + dayClass + '">';
-            html += '<div class="month-day-number" onclick="selectDayFromMonth(&quot;' + date.toISOString().split('T')[0] + '&quot;)">' + date.getDate() + '</div>';
+            html += '<div class="month-day-number" onclick="selectDayFromMonth(&quot;' + getLocalDateString(date) + '&quot;)">' + date.getDate() + '</div>';
             
             // Find events for this day
             const dayEvents = events.filter(event => {
