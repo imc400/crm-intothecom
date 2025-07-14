@@ -321,10 +321,13 @@ app.get('/api/calendar/events', async (req, res) => {
         timeMax = endOfMonthView;
         
         console.log('Month view range:', {
+          requestedDate: dateParam || 'current',
           firstDay: firstDayOfMonth.toDateString(),
           lastDay: lastDayOfMonth.toDateString(),
           startView: startOfMonthView.toDateString(),
-          endView: endOfMonthView.toDateString()
+          endView: endOfMonthView.toDateString(),
+          timeMin: timeMin.toISOString(),
+          timeMax: timeMax.toISOString()
         });
         break;
     }
@@ -337,9 +340,22 @@ app.get('/api/calendar/events', async (req, res) => {
       orderBy: 'startTime',
     });
 
+    const events = response.data.items || [];
+    console.log(`Events fetched for ${view} view:`, {
+      count: events.length,
+      firstEvent: events[0] ? {
+        summary: events[0].summary,
+        start: events[0].start?.dateTime || events[0].start?.date
+      } : null,
+      lastEvent: events[events.length - 1] ? {
+        summary: events[events.length - 1].summary,
+        start: events[events.length - 1].start?.dateTime || events[events.length - 1].start?.date
+      } : null
+    });
+
     res.json({
       success: true,
-      data: response.data.items || [],
+      data: events,
       view: view,
       timeRange: {
         start: timeMin.toISOString(),
@@ -1280,6 +1296,12 @@ app.get('/', (req, res) => {
         function renderCalendarView(events, view) {
           const calendarGrid = document.querySelector('.calendar-grid');
           
+          console.log(`Rendering ${view} view with ${events.length} events:`, events.map(e => ({
+            summary: e.summary,
+            start: e.start?.dateTime || e.start?.date,
+            date: new Date(e.start?.dateTime || e.start?.date).toDateString()
+          })));
+          
           if (events.length === 0) {
             calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No se encontraron eventos en tu calendario</p></div>';
             return;
@@ -1392,9 +1414,16 @@ app.get('/', (req, res) => {
         }
 
         function renderMonthView(events) {
-          const now = new Date();
+          const now = currentDate;
           const year = now.getFullYear();
           const month = now.getMonth();
+          
+          console.log(`Rendering month view for ${year}-${month + 1}:`, {
+            totalEvents: events.length,
+            currentDate: currentDate.toDateString(),
+            firstDay: new Date(year, month, 1).toDateString(),
+            lastDay: new Date(year, month + 1, 0).toDateString()
+          });
           
           const firstDay = new Date(year, month, 1);
           const lastDay = new Date(year, month + 1, 0);
@@ -1426,6 +1455,10 @@ app.get('/', (req, res) => {
               const eventDate = new Date(event.start.dateTime || event.start.date);
               return eventDate.toDateString() === date.toDateString();
             });
+            
+            if (dayEvents.length > 0) {
+              console.log(`Day ${date.toDateString()} has ${dayEvents.length} events:`, dayEvents.map(e => e.summary));
+            }
             
             dayEvents.forEach(event => {
               html += '<div class="month-event" onclick="showEventDetails(&quot;' + event.id + '&quot;)">';
