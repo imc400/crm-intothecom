@@ -341,7 +341,7 @@ app.get('/api/calendar/events', async (req, res) => {
     });
 
     const events = response.data.items || [];
-    console.log(`Events fetched for ${view} view:`, {
+    console.log('Events fetched for ' + view + ' view:', {
       count: events.length,
       firstEvent: events[0] ? {
         summary: events[0].summary,
@@ -1296,7 +1296,7 @@ app.get('/', (req, res) => {
         function renderCalendarView(events, view) {
           const calendarGrid = document.querySelector('.calendar-grid');
           
-          console.log(`Rendering ${view} view with ${events.length} events:`, events.map(e => ({
+          console.log('Rendering ' + view + ' view with ' + events.length + ' events:', events.map(e => ({
             summary: e.summary,
             start: e.start?.dateTime || e.start?.date,
             date: new Date(e.start?.dateTime || e.start?.date).toDateString()
@@ -1418,7 +1418,7 @@ app.get('/', (req, res) => {
           const year = now.getFullYear();
           const month = now.getMonth();
           
-          console.log(`Rendering month view for ${year}-${month + 1}:`, {
+          console.log('Rendering month view for ' + year + '-' + (month + 1) + ':', {
             totalEvents: events.length,
             currentDate: currentDate.toDateString(),
             firstDay: new Date(year, month, 1).toDateString(),
@@ -1457,7 +1457,7 @@ app.get('/', (req, res) => {
             });
             
             if (dayEvents.length > 0) {
-              console.log(`Day ${date.toDateString()} has ${dayEvents.length} events:`, dayEvents.map(e => e.summary));
+              console.log('Day ' + date.toDateString() + ' has ' + dayEvents.length + ' events:', dayEvents.map(e => e.summary));
             }
             
             dayEvents.forEach(event => {
