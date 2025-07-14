@@ -984,15 +984,14 @@ app.get('/', (req, res) => {
             // Also update calendar grid to show connection prompt
             const calendarGrid = document.querySelector('.calendar-grid');
             if (calendarGrid && document.querySelector('.nav-item.active')?.getAttribute('data-tab') === 'calendar') {
-              calendarGrid.innerHTML = `
-                <div class="auth-prompt">
-                  <h3>Conecta tu Google Calendar</h3>
-                  <p>Autoriza el acceso a tu calendario para ver y gestionar eventos</p>
-                  <button class="btn btn-primary" onclick="authenticateGoogle()" style="margin-top: 20px;">
-                    Conectar Google Calendar
-                  </button>
-                </div>
-              `;
+              calendarGrid.innerHTML = 
+                '<div class="auth-prompt">' +
+                  '<h3>Conecta tu Google Calendar</h3>' +
+                  '<p>Autoriza el acceso a tu calendario para ver y gestionar eventos</p>' +
+                  '<button class="btn btn-primary" onclick="authenticateGoogle()" style="margin-top: 20px;">' +
+                    'Conectar Google Calendar' +
+                  '</button>' +
+                '</div>';
             }
           }
         }
