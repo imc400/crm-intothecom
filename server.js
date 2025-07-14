@@ -1264,6 +1264,8 @@ app.get('/', (req, res) => {
             currentDate.setMonth(currentDate.getMonth() + (direction === 'next' ? 1 : -1));
           }
           
+          console.log('Navigation - Previous date:', prevDate.toDateString(), 'New date:', currentDate.toDateString(), 'View:', currentView);
+          
           updateCalendarTitle();
           loadCalendarEventsForDate();
         }
@@ -1312,21 +1314,20 @@ app.get('/', (req, res) => {
           } else if (view === 'month') {
             calendarGrid.innerHTML = renderMonthView(events);
           } else {
-            // Day view - filter events for today only
-            const today = new Date();
-            const todayStr = today.toDateString();
+            // Day view - filter events for selected date only
+            const selectedDateStr = currentDate.toDateString();
             
-            const todayEvents = events.filter(event => {
+            const dayEvents = events.filter(event => {
               const eventDate = new Date(event.start.dateTime || event.start.date);
-              return eventDate.toDateString() === todayStr;
+              return eventDate.toDateString() === selectedDateStr;
             });
             
-            if (todayEvents.length === 0) {
-              calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos hoy</h3><p>No tienes eventos programados para hoy</p></div>';
+            if (dayEvents.length === 0) {
+              calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No tienes eventos programados para este día</p></div>';
               return;
             }
             
-            calendarGrid.innerHTML = todayEvents.map(event => 
+            calendarGrid.innerHTML = dayEvents.map(event => 
               '<div class="event-item">' +
                 '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
                 '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
@@ -1343,13 +1344,13 @@ app.get('/', (req, res) => {
         function renderWeekView(events) {
           const weekDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
           
-          // Get current week boundaries
-          const now = new Date();
-          const startOfWeek = new Date(now.getTime() - (now.getDay() * 24 * 60 * 60 * 1000));
+          // Get selected week boundaries
+          const selectedDate = new Date(currentDate);
+          const startOfWeek = new Date(selectedDate.getTime() - (selectedDate.getDay() * 24 * 60 * 60 * 1000));
           startOfWeek.setHours(0, 0, 0, 0);
           const endOfWeek = new Date(startOfWeek.getTime() + (7 * 24 * 60 * 60 * 1000));
           
-          // Filter events for current week only
+          // Filter events for selected week only
           const weekEvents = events.filter(event => {
             const eventDate = new Date(event.start.dateTime || event.start.date);
             return eventDate >= startOfWeek && eventDate < endOfWeek;
