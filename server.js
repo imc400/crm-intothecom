@@ -4,13 +4,17 @@ const { Pool } = require('pg');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
 // Database connection
+console.log('Environment:', process.env.NODE_ENV);
+console.log('Database URL exists:', !!process.env.DATABASE_URL);
+console.log('Port:', PORT);
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
@@ -230,7 +234,7 @@ app.get('/', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 CRM Server running on port ${PORT}`);
   console.log(`📱 Web interface: http://localhost:${PORT}`);
   console.log(`🔗 API endpoints:`);
