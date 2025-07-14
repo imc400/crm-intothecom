@@ -136,19 +136,42 @@ async function initDatabase() {
       )
     `);
     
+    // Check if notes column exists in events table, if not add it
+    try {
+      await pool.query(`
+        SELECT notes FROM events LIMIT 1
+      `);
+    } catch (columnError) {
+      if (columnError.code === '42703') { // Column does not exist
+        console.log('Adding notes column to events table...');
+        await pool.query(`
+          ALTER TABLE events ADD COLUMN notes TEXT
+        `);
+        console.log('Notes column added to events table successfully');
+      }
+    }
+    
     console.log('Database initialized successfully');
     
-    // Log current table schema for debugging
+    // Log current table schemas for debugging
     try {
-      const schemaResult = await pool.query(`
+      const contactsSchemaResult = await pool.query(`
         SELECT column_name, data_type 
         FROM information_schema.columns 
         WHERE table_name = 'contacts'
         ORDER BY ordinal_position
       `);
-      console.log('Current contacts table schema:', schemaResult.rows);
+      console.log('Current contacts table schema:', contactsSchemaResult.rows);
+      
+      const eventsSchemaResult = await pool.query(`
+        SELECT column_name, data_type 
+        FROM information_schema.columns 
+        WHERE table_name = 'events'
+        ORDER BY ordinal_position
+      `);
+      console.log('Current events table schema:', eventsSchemaResult.rows);
     } catch (schemaError) {
-      console.error('Error checking table schema:', schemaError);
+      console.error('Error checking table schemas:', schemaError);
     }
     
   } catch (error) {
@@ -539,17 +562,22 @@ app.post('/api/events/:eventId', async (req, res) => {
     });
     
     // Update local database
-    await pool.query(
-      'UPDATE events SET notes = $1, summary = $2, description = $3, start_time = $4, end_time = $5 WHERE google_event_id = $6',
-      [
-        notes || '', 
-        summary || '', 
-        description || '',
-        start && start.dateTime ? start.dateTime : start?.date,
-        end && end.dateTime ? end.dateTime : end?.date,
-        eventId
-      ]
-    );
+    try {
+      await pool.query(
+        'UPDATE events SET notes = $1, summary = $2, description = $3, start_time = $4, end_time = $5 WHERE google_event_id = $6',
+        [
+          notes || '', 
+          summary || '', 
+          description || '',
+          start && start.dateTime ? start.dateTime : start?.date,
+          end && end.dateTime ? end.dateTime : end?.date,
+          eventId
+        ]
+      );
+    } catch (dbError) {
+      console.error('Error updating local database:', dbError);
+      // Don't fail the entire request if database update fails
+    }
     
     res.json({
       success: true,
