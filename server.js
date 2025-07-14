@@ -41,6 +41,66 @@ async function initDatabase() {
       )
     `);
     
+    // Check if tags column exists, if not add it
+    try {
+      await pool.query(`
+        SELECT tags FROM contacts LIMIT 1
+      `);
+    } catch (columnError) {
+      if (columnError.code === '42703') { // Column does not exist
+        console.log('Adding tags column to contacts table...');
+        await pool.query(`
+          ALTER TABLE contacts ADD COLUMN tags TEXT[] DEFAULT '{}'
+        `);
+        console.log('Tags column added successfully');
+      }
+    }
+    
+    // Check if notes column exists, if not add it
+    try {
+      await pool.query(`
+        SELECT notes FROM contacts LIMIT 1
+      `);
+    } catch (columnError) {
+      if (columnError.code === '42703') { // Column does not exist
+        console.log('Adding notes column to contacts table...');
+        await pool.query(`
+          ALTER TABLE contacts ADD COLUMN notes TEXT
+        `);
+        console.log('Notes column added successfully');
+      }
+    }
+    
+    // Check if created_at column exists, if not add it
+    try {
+      await pool.query(`
+        SELECT created_at FROM contacts LIMIT 1
+      `);
+    } catch (columnError) {
+      if (columnError.code === '42703') { // Column does not exist
+        console.log('Adding created_at column to contacts table...');
+        await pool.query(`
+          ALTER TABLE contacts ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        `);
+        console.log('Created_at column added successfully');
+      }
+    }
+    
+    // Check if updated_at column exists, if not add it
+    try {
+      await pool.query(`
+        SELECT updated_at FROM contacts LIMIT 1
+      `);
+    } catch (columnError) {
+      if (columnError.code === '42703') { // Column does not exist
+        console.log('Adding updated_at column to contacts table...');
+        await pool.query(`
+          ALTER TABLE contacts ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        `);
+        console.log('Updated_at column added successfully');
+      }
+    }
+    
     // Create trigger to update updated_at timestamp
     await pool.query(`
       CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -77,6 +137,20 @@ async function initDatabase() {
     `);
     
     console.log('Database initialized successfully');
+    
+    // Log current table schema for debugging
+    try {
+      const schemaResult = await pool.query(`
+        SELECT column_name, data_type 
+        FROM information_schema.columns 
+        WHERE table_name = 'contacts'
+        ORDER BY ordinal_position
+      `);
+      console.log('Current contacts table schema:', schemaResult.rows);
+    } catch (schemaError) {
+      console.error('Error checking table schema:', schemaError);
+    }
+    
   } catch (error) {
     console.error('Database initialization error:', error);
   }
