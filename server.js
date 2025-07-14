@@ -137,6 +137,45 @@ app.get('/api/contacts/new', async (req, res) => {
   }
 });
 
+// Create new contact
+app.post('/api/contacts', async (req, res) => {
+  const { email, name, tags, notes } = req.body;
+  
+  try {
+    // Validate required fields
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email is required'
+      });
+    }
+    
+    const result = await pool.query(
+      'INSERT INTO contacts (email, name, first_seen, last_seen, tags, notes) VALUES ($1, $2, CURRENT_DATE, CURRENT_DATE, $3, $4) RETURNING *',
+      [email, name || email.split('@')[0], tags || [], notes || '']
+    );
+    
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: 'Contact created successfully'
+    });
+  } catch (error) {
+    if (error.code === '23505') { // Unique constraint violation
+      res.status(409).json({
+        success: false,
+        error: 'Contact with this email already exists'
+      });
+    } else {
+      console.error('Error creating contact:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to create contact'
+      });
+    }
+  }
+});
+
 // Update contact tags
 app.post('/api/contacts/:contactId/tags', async (req, res) => {
   const { contactId } = req.params;
@@ -287,7 +326,7 @@ app.get('/api/events/:eventId', async (req, res) => {
 // Update event
 app.post('/api/events/:eventId', async (req, res) => {
   const { eventId } = req.params;
-  const { summary, description, attendees, notes } = req.body;
+  const { summary, description, attendees, notes, start, end } = req.body;
   
   try {
     const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
@@ -298,12 +337,22 @@ app.post('/api/events/:eventId', async (req, res) => {
       eventId: eventId
     });
     
-    // Update event
+    // Build update data
     const updateData = {
       summary: summary || currentEvent.data.summary,
       description: description || currentEvent.data.description,
       attendees: attendees || currentEvent.data.attendees
     };
+    
+    // Add date/time if provided
+    if (start) {
+      updateData.start = start;
+    }
+    if (end) {
+      updateData.end = end;
+    }
+    
+    console.log('Updating event with data:', updateData);
     
     const response = await calendar.events.update({
       calendarId: 'primary',
@@ -311,10 +360,17 @@ app.post('/api/events/:eventId', async (req, res) => {
       requestBody: updateData
     });
     
-    // Update local database notes
+    // Update local database
     await pool.query(
-      'UPDATE events SET notes = $1 WHERE google_event_id = $2',
-      [notes || '', eventId]
+      'UPDATE events SET notes = $1, summary = $2, description = $3, start_time = $4, end_time = $5 WHERE google_event_id = $6',
+      [
+        notes || '', 
+        summary || '', 
+        description || '',
+        start && start.dateTime ? start.dateTime : start?.date,
+        end && end.dateTime ? end.dateTime : end?.date,
+        eventId
+      ]
     );
     
     res.json({
@@ -326,7 +382,7 @@ app.post('/api/events/:eventId', async (req, res) => {
     console.error('Error updating event:', error);
     res.status(500).json({
       success: false,
-      error: 'Failed to update event'
+      error: 'Failed to update event: ' + error.message
     });
   }
 });
@@ -1651,7 +1707,15 @@ app.get('/', (req, res) => {
             
             <div class="form-group">
               <label class="form-label">Fecha y Hora</label>
-              <div id="eventDateTime" class="form-input" style="background: #f7fafc; border: 1px solid #e2e8f0;"></div>
+              <div style="display: flex; gap: 10px; align-items: center;">
+                <input type="date" id="eventStartDate" class="form-input" style="width: 150px;">
+                <input type="time" id="eventStartTime" class="form-input" style="width: 100px;">
+                <span>hasta</span>
+                <input type="time" id="eventEndTime" class="form-input" style="width: 100px;">
+              </div>
+              <label style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="eventAllDay"> Todo el día
+              </label>
             </div>
             
             <div class="form-group">
@@ -2012,32 +2076,42 @@ app.get('/', (req, res) => {
           document.getElementById('eventDescription').value = event.description || '';
           document.getElementById('eventNotes').value = event.notes || '';
           
-          // Format date and time
+          // Format date and time for editing
           const startDate = new Date(event.start.dateTime || event.start.date);
           const endDate = new Date(event.end.dateTime || event.end.date);
           
-          if (event.start.dateTime) {
-            document.getElementById('eventDateTime').textContent = 
-              startDate.toLocaleString('es-ES', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-              }) + ' - ' + endDate.toLocaleTimeString('es-ES', {
-                hour: '2-digit',
-                minute: '2-digit'
-              });
+          // Set date field
+          document.getElementById('eventStartDate').value = startDate.toISOString().split('T')[0];
+          
+          // Check if it's all day event
+          const isAllDay = !event.start.dateTime;
+          document.getElementById('eventAllDay').checked = isAllDay;
+          
+          if (isAllDay) {
+            document.getElementById('eventStartTime').value = '';
+            document.getElementById('eventEndTime').value = '';
+            document.getElementById('eventStartTime').disabled = true;
+            document.getElementById('eventEndTime').disabled = true;
           } else {
-            document.getElementById('eventDateTime').textContent = 
-              startDate.toLocaleDateString('es-ES', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-              }) + ' (Todo el día)';
+            document.getElementById('eventStartTime').value = startDate.toTimeString().slice(0, 5);
+            document.getElementById('eventEndTime').value = endDate.toTimeString().slice(0, 5);
+            document.getElementById('eventStartTime').disabled = false;
+            document.getElementById('eventEndTime').disabled = false;
           }
+          
+          // Add event listener for all day checkbox
+          document.getElementById('eventAllDay').addEventListener('change', function() {
+            const isAllDay = this.checked;
+            document.getElementById('eventStartTime').disabled = isAllDay;
+            document.getElementById('eventEndTime').disabled = isAllDay;
+            if (isAllDay) {
+              document.getElementById('eventStartTime').value = '';
+              document.getElementById('eventEndTime').value = '';
+            } else {
+              document.getElementById('eventStartTime').value = '09:00';
+              document.getElementById('eventEndTime').value = '10:00';
+            }
+          });
           
           // Load available tags and contacts data
           await loadTagsAndContacts();
@@ -2045,6 +2119,8 @@ app.get('/', (req, res) => {
           // Populate attendees
           const attendeesList = document.getElementById('attendeesList');
           attendeesList.innerHTML = '';
+          
+          console.log('Event attendees:', event.attendees);
           
           if (event.attendees && event.attendees.length > 0) {
             for (const attendee of event.attendees) {
@@ -2055,13 +2131,17 @@ app.get('/', (req, res) => {
               const domain = email.includes('@') ? email.split('@')[1] : '';
               const isIntothecomEmail = email.includes('@intothecom.com') || email.includes('@intothecom');
               
-              // Get contact data for this email
-              const contactData = contactsData[email] || { tags: [], notes: '' };
+              // Get contact data for this email (create if doesn't exist)
+              let contactData = contactsData[email];
+              if (!contactData) {
+                contactData = { tags: [], notes: '', id: null };
+                contactsData[email] = contactData;
+              }
               
               attendeeDiv.innerHTML = 
                 '<div>' +
                   '<div class="attendee-email">' + email + '</div>' +
-                  '<div class="attendee-name">' + (attendee.displayName || 'Sin nombre') + '</div>' +
+                  '<div class="attendee-name">' + (attendee.displayName || attendee.email.split('@')[0]) + '</div>' +
                   '<div class="contact-tags" id="tags-' + email.replace(/[^a-zA-Z0-9]/g, '') + '">' +
                     renderContactTags(contactData.tags) +
                   '</div>' +
@@ -2083,7 +2163,7 @@ app.get('/', (req, res) => {
               attendeesList.appendChild(attendeeDiv);
             }
           } else {
-            attendeesList.innerHTML = '<div style="text-align: center; color: #718096;">No hay asistentes</div>';
+            attendeesList.innerHTML = '<div style="text-align: center; color: #718096; padding: 20px;">No hay asistentes registrados</div>';
           }
           
           // Meeting link
@@ -2158,8 +2238,7 @@ app.get('/', (req, res) => {
         }
 
         async function toggleTag(email, tag, element) {
-          const contactData = contactsData[email];
-          if (!contactData) return;
+          let contactData = contactsData[email];
           
           const isSelected = element.classList.contains('selected');
           let newTags;
@@ -2176,7 +2255,44 @@ app.get('/', (req, res) => {
             element.textContent = tag + ' ✓';
           }
           
-          // Update in backend
+          // If contact doesn't exist in database, create it first
+          if (!contactData.id) {
+            try {
+              const createResponse = await fetch('/api/contacts', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  email: email,
+                  name: email.split('@')[0],
+                  tags: newTags,
+                  notes: contactData.notes || ''
+                })
+              });
+              
+              const createResult = await createResponse.json();
+              if (createResult.success) {
+                contactData.id = createResult.data.id;
+                contactData.tags = newTags;
+                
+                // Update UI
+                const tagsContainer = document.getElementById('tags-' + email.replace(/[^a-zA-Z0-9]/g, ''));
+                tagsContainer.innerHTML = renderContactTags(newTags);
+                
+                console.log('Contact created and tag added successfully');
+                return;
+              } else {
+                throw new Error(createResult.error);
+              }
+            } catch (error) {
+              console.error('Error creating contact:', error);
+              alert('Error al crear contacto: ' + error.message);
+              return;
+            }
+          }
+          
+          // Update existing contact
           try {
             const response = await fetch('/api/contacts/' + contactData.id + '/tags', {
               method: 'POST',
@@ -2271,13 +2387,36 @@ app.get('/', (req, res) => {
           const description = document.getElementById('eventDescription').value;
           const notes = document.getElementById('eventNotes').value;
           
+          // Get date and time values
+          const startDate = document.getElementById('eventStartDate').value;
+          const startTime = document.getElementById('eventStartTime').value;
+          const endTime = document.getElementById('eventEndTime').value;
+          const isAllDay = document.getElementById('eventAllDay').checked;
+          
           // Collect attendees
           const attendeeEmails = [];
           const attendeeElements = document.querySelectorAll('.attendee-item');
           attendeeElements.forEach(element => {
-            const email = element.querySelector('.attendee-email').textContent;
-            if (email) attendeeEmails.push({ email: email });
+            const emailElement = element.querySelector('.attendee-email');
+            if (emailElement) {
+              const email = emailElement.textContent;
+              if (email) attendeeEmails.push({ email: email });
+            }
           });
+          
+          // Build start and end times
+          let start, end;
+          if (isAllDay) {
+            start = { date: startDate };
+            end = { date: startDate };
+          } else {
+            if (!startTime || !endTime) {
+              alert('Por favor ingresa las horas de inicio y fin');
+              return;
+            }
+            start = { dateTime: startDate + 'T' + startTime + ':00' };
+            end = { dateTime: startDate + 'T' + endTime + ':00' };
+          }
           
           try {
             const response = await fetch('/api/events/' + currentEventId, {
@@ -2289,7 +2428,9 @@ app.get('/', (req, res) => {
                 summary: title,
                 description: description,
                 attendees: attendeeEmails,
-                notes: notes
+                notes: notes,
+                start: start,
+                end: end
               })
             });
             
