@@ -1907,6 +1907,64 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
+      <!-- Contact Details Modal -->
+      <div id="contactModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Detalles del Contacto</h2>
+            <span class="close-btn" onclick="closeContactModal()">&times;</span>
+          </div>
+          
+          <div class="modal-body">
+            <div class="form-group">
+              <label>Email</label>
+              <input type="email" id="contactEmail" class="form-input" readonly style="background: #f7fafc;">
+            </div>
+            
+            <div class="form-group">
+              <label>Nombre</label>
+              <input type="text" id="contactName" class="form-input" placeholder="Nombre del contacto">
+            </div>
+            
+            <div class="form-group">
+              <label>Número de reuniones</label>
+              <input type="number" id="contactMeetingCount" class="form-input" placeholder="0">
+            </div>
+            
+            <div class="form-group">
+              <label>Primera reunión</label>
+              <input type="date" id="contactFirstSeen" class="form-input">
+            </div>
+            
+            <div class="form-group">
+              <label>Última reunión</label>
+              <input type="date" id="contactLastSeen" class="form-input">
+            </div>
+            
+            <div class="form-group">
+              <label>Etiquetas</label>
+              <div id="contactTagsContainer" class="contact-tags"></div>
+              <div class="tag-selector" style="margin-top: 10px;">
+                <div class="tag-dropdown" onclick="toggleContactTagDropdown()">
+                  Agregar etiqueta ▼
+                </div>
+                <div class="tag-dropdown-content" id="contactTagDropdown"></div>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label>Notas</label>
+              <textarea id="contactNotes" class="form-textarea" placeholder="Notas sobre este contacto..."></textarea>
+            </div>
+          </div>
+          
+          <div class="modal-footer">
+            <button class="btn-cancel" onclick="closeContactModal()">Cancelar</button>
+            <button class="btn-save" onclick="saveContactDetails()">Guardar Cambios</button>
+          </div>
+        </div>
+      </div>
+      
       <!-- Event Details Modal -->
       <div id="eventModal" class="modal">
         <div class="modal-content">
@@ -2665,6 +2723,144 @@ app.get('/', (req, res) => {
           currentEventId = null;
           currentEventData = null;
         }
+        
+        // Contact Details Modal Functions
+        let currentContactEmail = null;
+        let currentContactData = null;
+        
+        async function showContactDetails(email) {
+          try {
+            currentContactEmail = email;
+            
+            // Show modal
+            const modal = document.getElementById('contactModal');
+            modal.style.display = 'block';
+            
+            // Load contact data
+            const response = await fetch('/api/contacts');
+            const result = await response.json();
+            
+            if (result.success) {
+              const contact = result.data.find(c => c.email === email);
+              if (contact) {
+                currentContactData = contact;
+                populateContactModal(contact);
+              } else {
+                alert('Contacto no encontrado');
+                closeContactModal();
+              }
+            } else {
+              alert('Error al cargar contacto: ' + result.error);
+              closeContactModal();
+            }
+          } catch (error) {
+            console.error('Error loading contact details:', error);
+            alert('Error de conexión al cargar contacto');
+            closeContactModal();
+          }
+        }
+        
+        function populateContactModal(contact) {
+          document.getElementById('contactEmail').value = contact.email || '';
+          document.getElementById('contactName').value = contact.name || '';
+          document.getElementById('contactMeetingCount').value = contact.meeting_count || 0;
+          document.getElementById('contactFirstSeen').value = contact.first_seen || '';
+          document.getElementById('contactLastSeen').value = contact.last_seen || '';
+          document.getElementById('contactNotes').value = contact.notes || '';
+          
+          // Populate tags
+          const tagsContainer = document.getElementById('contactTagsContainer');
+          tagsContainer.innerHTML = renderContactTags(contact.tags || []);
+          
+          // Populate tag dropdown
+          const dropdown = document.getElementById('contactTagDropdown');
+          dropdown.innerHTML = availableTags.map(tagInfo => {
+            const tag = tagInfo.tag;
+            const isSelected = (contact.tags || []).includes(tag);
+            return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" onclick="toggleContactTag(\'' + tag + '\')")">' +
+                   tag + (isSelected ? ' ✓' : '') +
+                   '</div>';
+          }).join('');
+        }
+        
+        function toggleContactTagDropdown() {
+          const dropdown = document.getElementById('contactTagDropdown');
+          dropdown.classList.toggle('show');
+        }
+        
+        function toggleContactTag(tag) {
+          if (!currentContactData) return;
+          
+          const currentTags = currentContactData.tags || [];
+          let newTags;
+          
+          if (currentTags.includes(tag)) {
+            newTags = currentTags.filter(t => t !== tag);
+          } else {
+            newTags = [...currentTags, tag];
+          }
+          
+          // Update local data
+          currentContactData.tags = newTags;
+          
+          // Update UI
+          const tagsContainer = document.getElementById('contactTagsContainer');
+          tagsContainer.innerHTML = renderContactTags(newTags);
+          
+          // Update dropdown
+          const dropdown = document.getElementById('contactTagDropdown');
+          dropdown.innerHTML = availableTags.map(tagInfo => {
+            const tagName = tagInfo.tag;
+            const isSelected = newTags.includes(tagName);
+            return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" onclick="toggleContactTag(\'' + tagName + '\')")">' +
+                   tagName + (isSelected ? ' ✓' : '') +
+                   '</div>';
+          }).join('');
+        }
+        
+        function closeContactModal() {
+          document.getElementById('contactModal').style.display = 'none';
+          currentContactEmail = null;
+          currentContactData = null;
+        }
+        
+        async function saveContactDetails() {
+          if (!currentContactData) return;
+          
+          const name = document.getElementById('contactName').value;
+          const notes = document.getElementById('contactNotes').value;
+          const tags = currentContactData.tags || [];
+          
+          try {
+            const response = await fetch('/api/contacts/' + currentContactData.id + '/tags', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                tags: tags,
+                notes: notes
+              })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              alert('Contacto actualizado exitosamente');
+              closeContactModal();
+              // Refresh contacts view if we're on contacts tab
+              const activeTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab');
+              if (activeTab === 'contacts') {
+                loadContacts();
+              }
+            } else {
+              alert('Error al actualizar contacto: ' + result.error);
+            }
+          } catch (error) {
+            console.error('Error saving contact:', error);
+            alert('Error de conexión al guardar contacto');
+          }
+        }
 
         async function saveEventChanges() {
           if (!currentEventId) return;
@@ -3185,14 +3381,15 @@ app.get('/', (req, res) => {
                     
                     html += contacts.map(contact => {
                       const borderColor = tag === 'Untagged' ? '#e2e8f0' : color;
-                      return '<div class="event-item" style="border-left: 4px solid ' + borderColor + ';">' +
+                      return '<div class="event-item contact-item" style="border-left: 4px solid ' + borderColor + '; cursor: pointer;" onclick="showContactDetails(\'' + contact.email + '\')">' +
                         '<div class="event-title">' + contact.email + '</div>' +
-                        '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + contact.meeting_count + ' reuniones</div>' +
+                        '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + (contact.meeting_count || 0) + ' reuniones</div>' +
                         (contact.tags && contact.tags.length > 0 ? 
                           '<div class="contact-tags" style="margin-top: 8px;">' + 
                             contact.tags.map(t => '<span class="tag-badge ' + t.toLowerCase().replace(/\s+/g, '-') + '">' + t + '</span>').join('') +
                           '</div>' : '') +
-                        (contact.notes ? '<div style="margin-top: 8px; color: #718096; font-size: 14px;">' + contact.notes + '</div>' : '') +
+                        (contact.notes ? '<div style="margin-top: 8px; color: #718096; font-size: 14px;">' + contact.notes.substring(0, 100) + (contact.notes.length > 100 ? '...' : '') + '</div>' : '') +
+                        '<div style="margin-top: 8px; color: #718096; font-size: 12px;">Click para ver detalles</div>' +
                       '</div>';
                     }).join('');
                     
