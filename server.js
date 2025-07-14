@@ -523,6 +523,98 @@ app.get('/', (req, res) => {
           overflow-y: auto;
         }
         
+        .week-view {
+          display: grid;
+          grid-template-columns: 60px repeat(7, 1fr);
+          gap: 1px;
+          background: #e2e8f0;
+          border: 1px solid #e2e8f0;
+        }
+        
+        .time-slot {
+          background: #f8fafc;
+          padding: 8px;
+          font-size: 12px;
+          color: #718096;
+          border-right: 1px solid #e2e8f0;
+          text-align: center;
+        }
+        
+        .day-column {
+          background: white;
+          min-height: 60px;
+          position: relative;
+          border-right: 1px solid #e2e8f0;
+        }
+        
+        .day-header {
+          background: #f7fafc;
+          padding: 8px;
+          font-weight: 600;
+          text-align: center;
+          border-bottom: 1px solid #e2e8f0;
+          font-size: 14px;
+        }
+        
+        .event-block {
+          background: #FF6B00;
+          color: white;
+          padding: 4px 8px;
+          margin: 2px;
+          border-radius: 4px;
+          font-size: 12px;
+          cursor: pointer;
+          position: relative;
+        }
+        
+        .event-block:hover {
+          background: #E55A00;
+        }
+        
+        .month-view {
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 1px;
+          background: #e2e8f0;
+          border: 1px solid #e2e8f0;
+        }
+        
+        .month-day {
+          background: white;
+          min-height: 80px;
+          padding: 8px;
+          position: relative;
+          border: 1px solid #e2e8f0;
+        }
+        
+        .month-day-number {
+          font-weight: 600;
+          color: #2d3748;
+          margin-bottom: 4px;
+        }
+        
+        .month-day.other-month {
+          background: #f8fafc;
+          color: #a0aec0;
+        }
+        
+        .month-event {
+          background: #FF6B00;
+          color: white;
+          padding: 2px 4px;
+          margin: 1px 0;
+          border-radius: 2px;
+          font-size: 10px;
+          cursor: pointer;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        
+        .month-event:hover {
+          background: #E55A00;
+        }
+        
         .auth-prompt {
           text-align: center;
           padding: 60px 20px;
@@ -651,21 +743,20 @@ app.get('/', (req, res) => {
         <div class="sidebar">
           <div class="sidebar-header">
             <div class="logo">
-              <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==" alt="IntoTheCom">
-              IntoTheCom CRM
+              <img src="/negro sin fondo 72ppi.png" alt="IntoTheCom" onerror="this.style.display='none'">
             </div>
           </div>
           <nav class="nav-menu">
             <a href="#" class="nav-item active" data-tab="calendar">
-              <span class="nav-icon">📅</span>
+              <span class="nav-icon">CAL</span>
               <span>Calendario</span>
             </a>
             <a href="#" class="nav-item" data-tab="contacts">
-              <span class="nav-icon">👥</span>
+              <span class="nav-icon">CON</span>
               <span>Contactos</span>
             </a>
             <a href="#" class="nav-item" data-tab="sync">
-              <span class="nav-icon">🔄</span>
+              <span class="nav-icon">SIN</span>
               <span>Sincronización</span>
             </a>
           </nav>
@@ -676,10 +767,10 @@ app.get('/', (req, res) => {
             <h1 id="pageTitle">Calendario</h1>
             <div class="header-actions">
               <button class="btn btn-secondary" onclick="refreshData()">
-                <span>🔄</span> Actualizar
+                Actualizar
               </button>
               <button class="btn btn-primary" onclick="authenticateGoogle()">
-                <span>🔐</span> Conectar Google
+                Conectar Google
               </button>
             </div>
           </div>
@@ -701,7 +792,7 @@ app.get('/', (req, res) => {
                     <h3>Conecta tu Google Calendar</h3>
                     <p>Autoriza el acceso a tu calendario para ver y gestionar eventos</p>
                     <button class="btn btn-primary" onclick="authenticateGoogle()" style="margin-top: 20px;">
-                      <span>🔐</span> Conectar Google Calendar
+                      Conectar Google Calendar
                     </button>
                   </div>
                 </div>
@@ -717,7 +808,7 @@ app.get('/', (req, res) => {
               <h3>Sincronización con Google Calendar</h3>
               <div id="syncStatus"></div>
               <button class="btn btn-primary" onclick="syncContacts()">
-                <span>🔄</span> Sincronizar Ahora
+                Sincronizar Ahora
               </button>
             </div>
           </div>
@@ -794,17 +885,24 @@ app.get('/', (req, res) => {
               if (result.data.length === 0) {
                 calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No se encontraron eventos en tu calendario</p></div>';
               } else {
-                calendarGrid.innerHTML = result.data.map(event => 
-                  '<div class="event-item">' +
-                    '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
-                    '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
-                    '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
-                    '<div class="event-actions">' +
-                      (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn">🎥 Unirse</a>' : '') +
-                      '<button class="event-details-btn" onclick="showEventDetails(&quot;' + event.id + '&quot;)">📋 Detalles</button>' +
-                    '</div>' +
-                  '</div>'
-                ).join('');
+                if (view === 'week') {
+                  calendarGrid.innerHTML = renderWeekView(result.data);
+                } else if (view === 'month') {
+                  calendarGrid.innerHTML = renderMonthView(result.data);
+                } else {
+                  // Day view (default)
+                  calendarGrid.innerHTML = result.data.map(event => 
+                    '<div class="event-item">' +
+                      '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
+                      '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
+                      '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
+                      '<div class="event-actions">' +
+                        (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn">Unirse</a>' : '') +
+                        '<button class="event-details-btn" onclick="showEventDetails(&quot;' + event.id + '&quot;)">Detalles</button>' +
+                      '</div>' +
+                    '</div>'
+                  ).join('');
+                }
               }
             } else {
               calendarGrid.innerHTML = '<div class="status error">Error: ' + result.error + '</div>';
@@ -858,6 +956,98 @@ app.get('/', (req, res) => {
 
         function showEventDetails(eventId) {
           alert('Detalles del evento: ' + eventId);
+        }
+
+        function renderWeekView(events) {
+          const timeSlots = Array.from({length: 24}, (_, i) => i + ':00');
+          const weekDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+          
+          let html = '<div class="week-view">';
+          
+          // Header row
+          html += '<div class="time-slot"></div>';
+          weekDays.forEach(day => {
+            html += '<div class="day-header">' + day + '</div>';
+          });
+          
+          // Time slots and events
+          timeSlots.forEach(time => {
+            html += '<div class="time-slot">' + time + '</div>';
+            for (let day = 0; day < 7; day++) {
+              html += '<div class="day-column">';
+              
+              // Find events for this day and time
+              const dayEvents = events.filter(event => {
+                const eventDate = new Date(event.start.dateTime || event.start.date);
+                const eventHour = eventDate.getHours();
+                const eventDay = eventDate.getDay();
+                return eventDay === day && eventHour === parseInt(time);
+              });
+              
+              dayEvents.forEach(event => {
+                html += '<div class="event-block" onclick="showEventDetails(&quot;' + event.id + '&quot;)">';
+                html += (event.summary || 'Sin título').substring(0, 20);
+                if (event.hangoutLink) {
+                  html += '<br><a href="' + event.hangoutLink + '" target="_blank" style="color: white; text-decoration: underline;">Unirse</a>';
+                }
+                html += '</div>';
+              });
+              
+              html += '</div>';
+            }
+          });
+          
+          html += '</div>';
+          return html;
+        }
+
+        function renderMonthView(events) {
+          const now = new Date();
+          const year = now.getFullYear();
+          const month = now.getMonth();
+          
+          const firstDay = new Date(year, month, 1);
+          const lastDay = new Date(year, month + 1, 0);
+          const startDate = new Date(firstDay);
+          startDate.setDate(startDate.getDate() - firstDay.getDay());
+          
+          const weekDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+          
+          let html = '<div class="month-view">';
+          
+          // Header row
+          weekDays.forEach(day => {
+            html += '<div class="day-header">' + day + '</div>';
+          });
+          
+          // Calendar grid
+          for (let i = 0; i < 42; i++) {
+            const date = new Date(startDate);
+            date.setDate(startDate.getDate() + i);
+            
+            const isCurrentMonth = date.getMonth() === month;
+            const dayClass = isCurrentMonth ? 'month-day' : 'month-day other-month';
+            
+            html += '<div class="' + dayClass + '">';
+            html += '<div class="month-day-number">' + date.getDate() + '</div>';
+            
+            // Find events for this day
+            const dayEvents = events.filter(event => {
+              const eventDate = new Date(event.start.dateTime || event.start.date);
+              return eventDate.toDateString() === date.toDateString();
+            });
+            
+            dayEvents.forEach(event => {
+              html += '<div class="month-event" onclick="showEventDetails(&quot;' + event.id + '&quot;)">';
+              html += (event.summary || 'Sin título').substring(0, 15);
+              html += '</div>';
+            });
+            
+            html += '</div>';
+          }
+          
+          html += '</div>';
+          return html;
         }
 
         function refreshData() {
