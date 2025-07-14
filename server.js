@@ -153,9 +153,17 @@ app.post('/api/contacts', async (req, res) => {
       });
     }
     
+    // Ensure tags is an array
+    let tagsArray = [];
+    if (Array.isArray(tags)) {
+      tagsArray = tags;
+    } else if (typeof tags === 'string') {
+      tagsArray = [tags];
+    }
+    
     const result = await pool.query(
       'INSERT INTO contacts (email, name, first_seen, last_seen, tags, notes) VALUES ($1, $2, CURRENT_DATE, CURRENT_DATE, $3, $4) RETURNING *',
-      [email, name || email.split('@')[0], tags || [], notes || '']
+      [email, name || email.split('@')[0], tagsArray, notes || '']
     );
     
     res.json({
@@ -164,16 +172,36 @@ app.post('/api/contacts', async (req, res) => {
       message: 'Contact created successfully'
     });
   } catch (error) {
+    console.error('Error creating contact:', error);
     if (error.code === '23505') { // Unique constraint violation
-      res.status(409).json({
-        success: false,
-        error: 'Contact with this email already exists'
-      });
+      // Try to get the existing contact and return it
+      try {
+        const existingResult = await pool.query(
+          'SELECT * FROM contacts WHERE email = $1',
+          [email]
+        );
+        if (existingResult.rows.length > 0) {
+          res.status(409).json({
+            success: false,
+            error: 'Contact with this email already exists',
+            data: existingResult.rows[0]
+          });
+        } else {
+          res.status(409).json({
+            success: false,
+            error: 'Contact with this email already exists'
+          });
+        }
+      } catch (getError) {
+        res.status(409).json({
+          success: false,
+          error: 'Contact with this email already exists'
+        });
+      }
     } else {
-      console.error('Error creating contact:', error);
       res.status(500).json({
         success: false,
-        error: 'Failed to create contact'
+        error: 'Failed to create contact: ' + error.message
       });
     }
   }
@@ -2366,27 +2394,60 @@ app.get('/', (req, res) => {
                   console.log('Contact created and tag added successfully');
                   return;
                 } else if (createResponse.status === 409) {
-                  // Contact exists, get the existing contact and use its ID
-                  const getResponse = await fetch('/api/contacts');
-                  const getResult = await getResponse.json();
-                  if (getResult.success) {
-                    const existingContact = getResult.data.find(c => c.email === email);
-                    if (existingContact) {
-                      contactId = existingContact.id;
-                      contactData.id = contactId;
-                      contactData.tags = existingContact.tags || [];
-                      contactsData[email] = contactData;
-                      // Continue to update tags below
+                  // Contact exists, check if the response includes the existing contact data
+                  if (createResult.data && createResult.data.id) {
+                    contactId = createResult.data.id;
+                    contactData.id = contactId;
+                    contactData.tags = createResult.data.tags || [];
+                    contactsData[email] = contactData;
+                    // Continue to update tags below
+                  } else {
+                    // If no data in response, try to get it from the full contacts list
+                    try {
+                      const getResponse = await fetch('/api/contacts');
+                      const getResult = await getResponse.json();
+                      if (getResult.success) {
+                        const existingContact = getResult.data.find(c => c.email === email);
+                        if (existingContact) {
+                          contactId = existingContact.id;
+                          contactData.id = contactId;
+                          contactData.tags = existingContact.tags || [];
+                          contactsData[email] = contactData;
+                          // Continue to update tags below
+                        }
+                      }
+                    } catch (getError) {
+                      console.error('Error getting existing contact:', getError);
+                      alert('Error: El contacto ya existe pero no se pudo obtener su información');
+                      return;
                     }
                   }
                 } else {
                   console.error('Error creating contact:', createResult.error);
-                  alert('Error: ' + createResult.error);
+                  console.error('Response status:', createResponse.status);
+                  console.error('Full response:', createResult);
+                  alert('Error: ' + (createResult.error || 'Unknown error'));
+                  // Revert UI changes
+                  if (isSelected) {
+                    element.classList.add('selected');
+                    element.textContent = tag + ' ✓';
+                  } else {
+                    element.classList.remove('selected');
+                    element.textContent = tag;
+                  }
                   return;
                 }
               } catch (createError) {
                 console.error('Error in contact creation:', createError);
-                alert('Error de conexión al crear contacto');
+                alert('Error de conexión: ' + createError.message);
+                // Revert UI changes
+                if (isSelected) {
+                  element.classList.add('selected');
+                  element.textContent = tag + ' ✓';
+                } else {
+                  element.classList.remove('selected');
+                  element.textContent = tag;
+                }
                 return;
               }
             }
