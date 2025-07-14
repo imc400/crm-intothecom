@@ -286,8 +286,9 @@ app.get('/api/calendar/events', async (req, res) => {
   try {
     const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
     const view = req.query.view || 'week';
+    const dateParam = req.query.date;
     
-    const now = new Date();
+    const now = dateParam ? new Date(dateParam) : new Date();
     let timeMin, timeMax;
     
     switch (view) {
@@ -318,6 +319,13 @@ app.get('/api/calendar/events', async (req, res) => {
         
         timeMin = startOfMonthView;
         timeMax = endOfMonthView;
+        
+        console.log('Month view range:', {
+          firstDay: firstDayOfMonth.toDateString(),
+          lastDay: lastDayOfMonth.toDateString(),
+          startView: startOfMonthView.toDateString(),
+          endView: endOfMonthView.toDateString()
+        });
         break;
     }
     
@@ -556,6 +564,32 @@ app.get('/', (req, res) => {
           display: flex;
           justify-content: space-between;
           align-items: center;
+        }
+        
+        .calendar-date-nav {
+          display: flex;
+          align-items: center;
+          gap: 15px;
+        }
+        
+        .nav-btn {
+          background: #FF6B00;
+          color: white;
+          border: none;
+          border-radius: 50%;
+          width: 32px;
+          height: 32px;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 18px;
+          font-weight: bold;
+          transition: background 0.2s;
+        }
+        
+        .nav-btn:hover {
+          background: #E55A00;
         }
         
         .calendar-title {
@@ -873,7 +907,11 @@ app.get('/', (req, res) => {
             <div id="calendar-tab" class="tab-content">
               <div class="calendar-container">
                 <div class="calendar-header">
-                  <div class="calendar-title">Mis Eventos</div>
+                  <div class="calendar-date-nav">
+                    <button onclick="navigateDate('prev')" class="nav-btn">‹</button>
+                    <div class="calendar-title" id="calendarTitle">Mis Eventos</div>
+                    <button onclick="navigateDate('next')" class="nav-btn">›</button>
+                  </div>
                   <div class="calendar-nav">
                     <button onclick="showDayView()" class="view-btn" data-view="day">Día</button>
                     <button onclick="showWeekView()" class="view-btn active" data-view="week">Semana</button>
@@ -1057,7 +1095,8 @@ app.get('/', (req, res) => {
         async function syncCalendarSilently() {
           try {
             const activeView = document.querySelector('.view-btn.active')?.getAttribute('data-view') || 'week';
-            const response = await fetch('/api/calendar/events?view=' + activeView);
+            const dateParam = currentDate.toISOString().split('T')[0];
+            const response = await fetch('/api/calendar/events?view=' + activeView + '&date=' + dateParam);
             const result = await response.json();
             
             if (result.success && result.data) {
@@ -1082,8 +1121,13 @@ app.get('/', (req, res) => {
         let autoSyncInterval = null;
         const AUTO_SYNC_INTERVAL = 120000; // 2 minutos
         
+        // Current date state for navigation
+        let currentDate = new Date();
+        let currentView = 'week';
+        
         // Check auth status on page load
         document.addEventListener('DOMContentLoaded', () => {
+          updateCalendarTitle();
           checkAuthStatus();
         });
         
@@ -1112,7 +1156,8 @@ app.get('/', (req, res) => {
           calendarGrid.innerHTML = '<div class="status loading">Cargando eventos...</div>';
           
           try {
-            const response = await fetch('/api/calendar/events?view=' + view);
+            const dateParam = currentDate.toISOString().split('T')[0];
+            const response = await fetch('/api/calendar/events?view=' + view + '&date=' + dateParam);
             const result = await response.json();
             
             // Cache the results
@@ -1158,18 +1203,24 @@ app.get('/', (req, res) => {
         }
 
         function showDayView() {
+          currentView = 'day';
           updateViewButtons('day');
-          loadCalendarEvents('day');
+          updateCalendarTitle();
+          loadCalendarEventsForDate();
         }
 
         function showWeekView() {
+          currentView = 'week';
           updateViewButtons('week');
-          loadCalendarEvents('week');
+          updateCalendarTitle();
+          loadCalendarEventsForDate();
         }
 
         function showMonthView() {
+          currentView = 'month';
           updateViewButtons('month');
-          loadCalendarEvents('month');
+          updateCalendarTitle();
+          loadCalendarEventsForDate();
         }
 
         function updateViewButtons(activeView) {
@@ -1183,6 +1234,47 @@ app.get('/', (req, res) => {
 
         function showEventDetails(eventId) {
           alert('Detalles del evento: ' + eventId);
+        }
+
+        // Navigation functions
+        function navigateDate(direction) {
+          const prevDate = new Date(currentDate);
+          
+          if (currentView === 'day') {
+            currentDate.setDate(currentDate.getDate() + (direction === 'next' ? 1 : -1));
+          } else if (currentView === 'week') {
+            currentDate.setDate(currentDate.getDate() + (direction === 'next' ? 7 : -7));
+          } else if (currentView === 'month') {
+            currentDate.setMonth(currentDate.getMonth() + (direction === 'next' ? 1 : -1));
+          }
+          
+          updateCalendarTitle();
+          loadCalendarEventsForDate();
+        }
+
+        function updateCalendarTitle() {
+          const titleElement = document.getElementById('calendarTitle');
+          if (!titleElement) return;
+          
+          const options = { year: 'numeric', month: 'long', day: 'numeric' };
+          
+          if (currentView === 'day') {
+            titleElement.textContent = currentDate.toLocaleDateString('es-ES', options);
+          } else if (currentView === 'week') {
+            const startOfWeek = new Date(currentDate.getTime() - (currentDate.getDay() * 24 * 60 * 60 * 1000));
+            const endOfWeek = new Date(startOfWeek.getTime() + (6 * 24 * 60 * 60 * 1000));
+            titleElement.textContent = startOfWeek.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) + 
+                                     ' - ' + endOfWeek.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+          } else if (currentView === 'month') {
+            titleElement.textContent = currentDate.toLocaleDateString('es-ES', { year: 'numeric', month: 'long' });
+          }
+        }
+
+        function loadCalendarEventsForDate() {
+          // Clear cache when navigating to different dates
+          cachedEvents = null;
+          lastFetchTime = null;
+          loadCalendarEvents(currentView, true);
         }
 
         function renderCalendarView(events, view) {
