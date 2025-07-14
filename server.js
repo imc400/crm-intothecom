@@ -772,6 +772,16 @@ app.get('/', (req, res) => {
           }
         }
 
+        // Listen for authentication success message
+        window.addEventListener('message', (event) => {
+          if (event.data && event.data.type === 'google-auth-success') {
+            showStatus('Autenticación completada exitosamente', 'success');
+            setTimeout(() => {
+              loadCalendarEvents();
+            }, 1000);
+          }
+        });
+
         async function loadCalendarEvents(view = 'month') {
           const calendarGrid = document.querySelector('.calendar-grid');
           calendarGrid.innerHTML = '<div class="status loading">Cargando eventos...</div>';
@@ -791,7 +801,7 @@ app.get('/', (req, res) => {
                     '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
                     '<div class="event-actions">' +
                       (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn">🎥 Unirse</a>' : '') +
-                      '<button class="event-details-btn" onclick="showEventDetails(\'' + event.id + '\')">📋 Detalles</button>' +
+                      '<button class="event-details-btn" onclick="showEventDetails(&quot;' + event.id + '&quot;)">📋 Detalles</button>' +
                     '</div>' +
                   '</div>'
                 ).join('');
@@ -863,6 +873,12 @@ app.get('/', (req, res) => {
           const statusDiv = document.getElementById('status') || document.getElementById('syncStatus');
           if (statusDiv) {
             statusDiv.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
+          } else {
+            // Show status in calendar grid if no status div found
+            const calendarGrid = document.querySelector('.calendar-grid');
+            if (calendarGrid) {
+              calendarGrid.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
+            }
           }
         }
 
