@@ -2424,47 +2424,6 @@ app.get('/', (req, res) => {
             alert('Error de conexión');
           }
         }
-          
-          // Update existing contact
-          try {
-            const response = await fetch('/api/contacts/' + contactData.id + '/tags', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                tags: newTags,
-                notes: contactData.notes
-              })
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-              // Update local data
-              contactData.tags = newTags;
-              
-              // Update UI
-              const tagsContainer = document.getElementById('tags-' + email.replace(/[^a-zA-Z0-9]/g, ''));
-              tagsContainer.innerHTML = renderContactTags(newTags);
-              
-              console.log('Tag updated successfully');
-            } else {
-              alert('Error al actualizar etiqueta: ' + result.error);
-              // Revert UI
-              if (isSelected) {
-                element.classList.add('selected');
-                element.textContent = tag + ' ✓';
-              } else {
-                element.classList.remove('selected');
-                element.textContent = tag;
-              }
-            }
-          } catch (error) {
-            console.error('Error updating tag:', error);
-            alert('Error de conexión al actualizar etiqueta');
-          }
-        }
 
         function removeTag(tagToRemove, element) {
           const attendeeItem = element.closest('.attendee-item');
