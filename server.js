@@ -285,7 +285,7 @@ app.get('/api/calendar/events', async (req, res) => {
 
   try {
     const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
-    const view = req.query.view || 'month';
+    const view = req.query.view || 'week';
     
     const now = new Date();
     let timeMin, timeMax;
@@ -862,8 +862,8 @@ app.get('/', (req, res) => {
                   <div class="calendar-title">Mis Eventos</div>
                   <div class="calendar-nav">
                     <button onclick="showDayView()" class="view-btn" data-view="day">Día</button>
-                    <button onclick="showWeekView()" class="view-btn" data-view="week">Semana</button>
-                    <button onclick="showMonthView()" class="view-btn active" data-view="month">Mes</button>
+                    <button onclick="showWeekView()" class="view-btn active" data-view="week">Semana</button>
+                    <button onclick="showMonthView()" class="view-btn" data-view="month">Mes</button>
                     <button onclick="loadCalendarEvents()" class="btn-primary">Cargar Eventos</button>
                   </div>
                 </div>
@@ -946,7 +946,7 @@ app.get('/', (req, res) => {
             showStatus('Autenticación completada exitosamente', 'success');
             updateAuthButton(true);
             setTimeout(() => {
-              loadCalendarEvents();
+              loadCalendarEvents('week');
             }, 1000);
           }
         });
@@ -962,7 +962,7 @@ app.get('/', (req, res) => {
               // Load calendar events automatically if authenticated
               const activeTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab');
               if (activeTab === 'calendar') {
-                loadCalendarEvents();
+                loadCalendarEvents('week');
               }
             } else {
               updateAuthButton(false);
@@ -1008,7 +1008,7 @@ app.get('/', (req, res) => {
           }
         });
 
-        async function loadCalendarEvents(view = 'month') {
+        async function loadCalendarEvents(view = 'week') {
           const calendarGrid = document.querySelector('.calendar-grid');
           calendarGrid.innerHTML = '<div class="status loading">Cargando eventos...</div>';
           
@@ -1214,7 +1214,9 @@ app.get('/', (req, res) => {
         function refreshData() {
           const activeTab = document.querySelector('.nav-item.active').getAttribute('data-tab');
           if (activeTab === 'calendar') {
-            loadCalendarEvents();
+            // Check which view is active and load accordingly
+            const activeView = document.querySelector('.view-btn.active')?.getAttribute('data-view') || 'week';
+            loadCalendarEvents(activeView);
           } else if (activeTab === 'contacts') {
             loadContacts();
           }
