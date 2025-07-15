@@ -6752,7 +6752,7 @@ app.get('/', (req, res) => {
             }
             
             // Update contact tags in database
-            const response = await fetch(`/api/contacts/${contact.email}/tags`, {
+            const response = await fetch('/api/contacts/' + contact.email + '/tags', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ tags: updatedTags })
