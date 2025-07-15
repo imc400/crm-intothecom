@@ -5562,7 +5562,7 @@ app.get('/', (req, res) => {
               const sectionId = 'section-' + tag.toLowerCase().replace(/\s+/g, '-');
               
               html += '<div class="contact-section" style="margin-bottom: 25px;">';
-              html += '<h3 class="section-header" style="color: ' + color + '; margin-bottom: 15px; font-size: 18px; cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; padding: 10px 15px; background: rgba(255, 255, 255, 0.05); border-radius: 8px; transition: all 0.3s ease; border: 1px solid rgba(255, 255, 255, 0.1);" onclick="toggleSection(\'' + sectionId + '\')">' + 
+              html += '<h3 class="section-header" style="color: ' + color + '; margin-bottom: 15px; font-size: 18px; cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; padding: 10px 15px; background: rgba(255, 255, 255, 0.05); border-radius: 8px; transition: all 0.3s ease; border: 1px solid rgba(255, 255, 255, 0.1);" ' + safeOnclick('toggleSection', sectionId) + '>' + 
                      '<span><span class="section-icon" id="icon-' + sectionId + '">▼</span> ' + icon + ' ' + tag + ' (' + tagContacts.length + ')</span>' +
                      '<span style="font-size: 14px; opacity: 0.7;">Click para expandir/contraer</span>' +
                      '</h3>';
