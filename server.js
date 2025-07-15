@@ -2863,10 +2863,34 @@ app.get('/', (req, res) => {
           border-radius: 20px;
           font-size: 12px;
           font-weight: 600;
-          box-shadow: 0 2px 8px rgba(255, 107, 0, 0.3);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
           display: inline-block;
           margin-right: 8px;
           margin-bottom: 4px;
+          transition: all 0.3s ease;
+        }
+        
+        .tag-badge:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* Section Header Styles */
+        .section-header:hover {
+          background: rgba(255, 255, 255, 0.08) !important;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        }
+        
+        .section-icon {
+          font-size: 12px;
+          transition: transform 0.3s ease;
+          margin-right: 8px;
+        }
+        
+        .section-content {
+          transition: all 0.3s ease;
+          overflow: hidden;
         }
         
         /* Enhanced Status Messages */
