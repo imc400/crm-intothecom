@@ -3483,6 +3483,9 @@ app.get('/', (req, res) => {
               <button class="btn btn-secondary" onclick="refreshData()">
                 Actualizar
               </button>
+              <button class="btn btn-secondary" onclick="checkAuthStatus()">
+                Verificar Auth
+              </button>
               <div id="authButton">
                 <button class="btn btn-primary" onclick="authenticateGoogle()">
                   Conectar Google
@@ -3965,6 +3968,23 @@ app.get('/', (req, res) => {
             updateAuthButton(false);
           }
         }
+        
+        // Force check auth status every 5 seconds until authenticated
+        function startAuthCheck() {
+          const checkInterval = setInterval(function() {
+            checkAuthStatus().then(() => {
+              // If authenticated, stop checking
+              fetch('/api/auth/status')
+                .then(response => response.json())
+                .then(result => {
+                  if (result.success && result.authenticated) {
+                    clearInterval(checkInterval);
+                    console.log('Authentication confirmed, stopping periodic check');
+                  }
+                });
+            });
+          }, 5000);
+        }
 
         // Check only auth status without reloading events
         async function checkAuthStatusOnly() {
@@ -4079,6 +4099,8 @@ app.get('/', (req, res) => {
           // Increased delay to ensure DOM is fully rendered and server state is consistent
           setTimeout(() => {
             checkAuthStatus();
+            // Start periodic auth check
+            startAuthCheck();
           }, 1000);
         });
         
