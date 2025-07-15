@@ -124,6 +124,24 @@ async function initDatabase() {
       }
     }
     
+    // Create tags table for dynamic tag management
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS tags (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) UNIQUE NOT NULL,
+        color VARCHAR(7) DEFAULT '#FF6B00',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Insert default "New Lead" tag if it doesn't exist
+    await pool.query(`
+      INSERT INTO tags (name, color) 
+      VALUES ('New Lead', '#FF6B00')
+      ON CONFLICT (name) DO NOTHING
+    `);
+    
     // Create trigger to update updated_at timestamp
     await pool.query(`
       CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -546,57 +564,142 @@ app.post('/api/sync-attendee-tags', async (req, res) => {
 // Get available tags
 app.get('/api/tags', async (req, res) => {
   try {
-    // Start with predefined tags
-    const predefinedTags = [
-      { tag: 'New Lead', count: 0 }
-    ];
-    
-    // Try to get existing tags from database
-    let existingTags = [];
-    try {
-      // First check if contacts table exists and has data
-      const tableCheck = await pool.query(`
-        SELECT COUNT(*) as count FROM contacts
-      `);
-      
-      if (tableCheck.rows[0].count > 0) {
-        const result = await pool.query(`
-          SELECT DISTINCT unnest(tags) as tag, COUNT(*) as count
-          FROM contacts 
+    // Get all tags from tags table with usage count
+    const result = await pool.query(`
+      SELECT 
+        t.name as tag,
+        t.color,
+        t.id,
+        COALESCE(contact_counts.count, 0) as count
+      FROM tags t
+      LEFT JOIN (
+        SELECT 
+          tag,
+          COUNT(*) as count
+        FROM (
+          SELECT UNNEST(tags) as tag
+          FROM contacts
           WHERE tags IS NOT NULL AND array_length(tags, 1) > 0
-          GROUP BY tag
-          ORDER BY count DESC, tag ASC
-        `);
-        existingTags = result.rows || [];
-      }
-    } catch (dbError) {
-      console.log('Database query for existing tags failed, using predefined tags only:', dbError.message);
-      existingTags = [];
-    }
+        ) as all_tags
+        GROUP BY tag
+      ) contact_counts ON t.name = contact_counts.tag
+      ORDER BY count DESC, t.name ASC
+    `);
     
-    // Merge with existing tags
-    const existingTagNames = existingTags.map(row => row.tag);
-    const allTags = [...existingTags];
-    
-    for (const predefined of predefinedTags) {
-      if (!existingTagNames.includes(predefined.tag)) {
-        allTags.push(predefined);
-      }
-    }
+    const tags = result.rows.map(row => ({
+      id: row.id,
+      tag: row.tag,
+      color: row.color,
+      count: parseInt(row.count) || 0
+    }));
     
     res.json({
       success: true,
-      data: allTags.sort((a, b) => b.count - a.count)
+      data: tags
     });
   } catch (error) {
     console.error('Error fetching tags:', error);
     
-    // Fallback to predefined tags if everything fails
+    // Fallback response
     res.json({
       success: true,
       data: [
-        { tag: 'New Lead', count: 0 }
+        { id: 1, tag: 'New Lead', color: '#FF6B00', count: 0 }
       ]
+    });
+  }
+});
+
+// Create new tag
+app.post('/api/tags', async (req, res) => {
+  const { name, color } = req.body;
+  
+  if (!name || !name.trim()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Tag name is required'
+    });
+  }
+  
+  try {
+    const result = await pool.query(`
+      INSERT INTO tags (name, color) 
+      VALUES ($1, $2) 
+      RETURNING *
+    `, [name.trim(), color || '#FF6B00']);
+    
+    res.json({
+      success: true,
+      data: {
+        id: result.rows[0].id,
+        tag: result.rows[0].name,
+        color: result.rows[0].color,
+        count: 0
+      },
+      message: 'Tag created successfully'
+    });
+  } catch (error) {
+    console.error('Error creating tag:', error);
+    
+    if (error.code === '23505') { // Unique constraint violation
+      return res.status(400).json({
+        success: false,
+        error: 'Tag already exists'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create tag'
+    });
+  }
+});
+
+// Delete tag
+app.delete('/api/tags/:tagId', async (req, res) => {
+  const { tagId } = req.params;
+  
+  try {
+    // First, get the tag name to remove it from contacts
+    const tagResult = await pool.query('SELECT name FROM tags WHERE id = $1', [tagId]);
+    
+    if (tagResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Tag not found'
+      });
+    }
+    
+    const tagName = tagResult.rows[0].name;
+    
+    // Don't allow deleting "New Lead" tag
+    if (tagName === 'New Lead') {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot delete the default "New Lead" tag'
+      });
+    }
+    
+    // Remove tag from all contacts
+    await pool.query(`
+      UPDATE contacts 
+      SET tags = array_remove(tags, $1),
+          updated_at = CURRENT_TIMESTAMP
+      WHERE tags @> ARRAY[$1]
+    `, [tagName]);
+    
+    // Delete the tag
+    await pool.query('DELETE FROM tags WHERE id = $1', [tagId]);
+    
+    res.json({
+      success: true,
+      message: 'Tag deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting tag:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete tag'
     });
   }
 });
@@ -2083,6 +2186,83 @@ app.get('/', (req, res) => {
             padding: 16px;
           }
         }
+        
+        /* Tag Management Styles */
+        .tag-filter-container {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+        
+        .btn-create-tag {
+          background: linear-gradient(135deg, #FF6B00, #FF8533);
+          color: white;
+          border: none;
+          padding: 10px 16px;
+          border-radius: 8px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          white-space: nowrap;
+        }
+        
+        .btn-create-tag:hover {
+          background: linear-gradient(135deg, #FF8533, #FFB366);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(255, 107, 0, 0.3);
+        }
+        
+        .color-picker-container {
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          margin-top: 8px;
+        }
+        
+        .form-color-input {
+          width: 50px;
+          height: 40px;
+          border: 2px solid var(--border-light);
+          border-radius: 8px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+        }
+        
+        .form-color-input:hover {
+          border-color: var(--primary-orange);
+        }
+        
+        .color-preview {
+          flex: 1;
+          padding: 10px 16px;
+          border: 1px solid var(--border-light);
+          border-radius: 8px;
+          background: var(--surface-primary);
+          display: flex;
+          align-items: center;
+        }
+        
+        .tag-preview {
+          margin-top: 8px;
+          padding: 12px;
+          border: 1px solid var(--border-light);
+          border-radius: 8px;
+          background: var(--surface-primary);
+          display: flex;
+          align-items: center;
+        }
+        
+        .tag-badge {
+          background: var(--primary-gradient);
+          color: white;
+          padding: 6px 14px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 600;
+          box-shadow: 0 2px 8px rgba(255, 107, 0, 0.3);
+          transition: all 0.3s ease;
+        }
 
         /* Modal styles */
         .modal {
@@ -3120,11 +3300,16 @@ app.get('/', (req, res) => {
                   <input type="text" id="contactSearchInput" placeholder="Buscar por nombre o email..." 
                          class="filter-input" onkeyup="filterContacts()" />
                   
-                  <select id="contactTagFilter" class="filter-select" onchange="filterContacts()">
-                    <option value="">Todas las etiquetas</option>
-                    <option value="New Lead">● New Lead</option>
-                    <option value="Untagged">○ Sin etiquetas</option>
-                  </select>
+                  <div class="tag-filter-container">
+                    <select id="contactTagFilter" class="filter-select" onchange="filterContacts()">
+                      <option value="">Todas las etiquetas</option>
+                      <option value="New Lead">● New Lead</option>
+                      <option value="Untagged">○ Sin etiquetas</option>
+                    </select>
+                    <button class="btn-create-tag" onclick="showCreateTagModal()" title="Crear nueva etiqueta">
+                      + Nueva Etiqueta
+                    </button>
+                  </div>
                   
                   <select id="contactSortFilter" class="filter-select" onchange="filterContacts()">
                     <option value="recent">Más recientes</option>
@@ -3277,6 +3462,45 @@ app.get('/', (req, res) => {
           <div class="modal-footer">
             <button class="btn-cancel" onclick="closeContactModal()">Cancelar</button>
             <button class="btn-save" onclick="saveContactDetails()">Guardar Cambios</button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Create Tag Modal -->
+      <div id="createTagModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Crear Nueva Etiqueta</h2>
+            <span class="close-btn" onclick="closeCreateTagModal()">&times;</span>
+          </div>
+          
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">Nombre de la Etiqueta *</label>
+              <input type="text" id="newTagName" class="form-input" placeholder="Ej: Cliente Potencial" maxlength="50">
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Color de la Etiqueta</label>
+              <div class="color-picker-container">
+                <input type="color" id="newTagColor" class="form-color-input" value="#FF6B00">
+                <div class="color-preview">
+                  <span id="colorPreviewText">Nueva Etiqueta</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Vista Previa</label>
+              <div class="tag-preview">
+                <span id="tagPreview" class="tag-badge">Nueva Etiqueta</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="modal-footer">
+            <button class="btn-cancel" onclick="closeCreateTagModal()">Cancelar</button>
+            <button class="btn-save" onclick="createNewTag()">Crear Etiqueta</button>
           </div>
         </div>
       </div>
@@ -3750,6 +3974,117 @@ app.get('/', (req, res) => {
 
         let availableTags = [{ tag: 'New Lead', count: 0 }];
         let contactsData = {};
+        
+        // Tag Management Functions
+        function showCreateTagModal() {
+          document.getElementById('createTagModal').style.display = 'block';
+          document.getElementById('newTagName').value = '';
+          document.getElementById('newTagColor').value = '#FF6B00';
+          updateTagPreview();
+        }
+        
+        function closeCreateTagModal() {
+          document.getElementById('createTagModal').style.display = 'none';
+        }
+        
+        function updateTagPreview() {
+          const name = document.getElementById('newTagName').value || 'Nueva Etiqueta';
+          const color = document.getElementById('newTagColor').value;
+          
+          const preview = document.getElementById('tagPreview');
+          const colorPreview = document.getElementById('colorPreviewText');
+          
+          preview.textContent = name;
+          preview.style.background = color;
+          colorPreview.textContent = name;
+          colorPreview.style.color = color;
+        }
+        
+        async function createNewTag() {
+          const name = document.getElementById('newTagName').value.trim();
+          const color = document.getElementById('newTagColor').value;
+          
+          if (!name) {
+            alert('Por favor ingresa un nombre para la etiqueta');
+            return;
+          }
+          
+          try {
+            const response = await fetch('/api/tags', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                name: name,
+                color: color
+              })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              alert('Etiqueta creada exitosamente');
+              closeCreateTagModal();
+              // Reload tags for filter
+              loadTagsForFilter();
+              // Reload available tags for events
+              loadTagsAndContacts();
+            } else {
+              alert('Error al crear etiqueta: ' + result.error);
+            }
+          } catch (error) {
+            console.error('Error creating tag:', error);
+            alert('Error de conexión al crear etiqueta');
+          }
+        }
+        
+        async function deleteTag(tagId, tagName) {
+          if (tagName === 'New Lead') {
+            alert('No se puede eliminar la etiqueta "New Lead"');
+            return;
+          }
+          
+          if (!confirm(`¿Estás seguro de que quieres eliminar la etiqueta "${tagName}"? Esta acción no se puede deshacer.`)) {
+            return;
+          }
+          
+          try {
+            const response = await fetch(`/api/tags/${tagId}`, {
+              method: 'DELETE'
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              alert('Etiqueta eliminada exitosamente');
+              // Reload tags for filter
+              loadTagsForFilter();
+              // Reload available tags for events
+              loadTagsAndContacts();
+              // Reload contacts to reflect changes
+              loadContactsWithFilters();
+            } else {
+              alert('Error al eliminar etiqueta: ' + result.error);
+            }
+          } catch (error) {
+            console.error('Error deleting tag:', error);
+            alert('Error de conexión al eliminar etiqueta');
+          }
+        }
+        
+        // Add event listeners for tag preview
+        document.addEventListener('DOMContentLoaded', function() {
+          const nameInput = document.getElementById('newTagName');
+          const colorInput = document.getElementById('newTagColor');
+          
+          if (nameInput) {
+            nameInput.addEventListener('input', updateTagPreview);
+          }
+          if (colorInput) {
+            colorInput.addEventListener('input', updateTagPreview);
+          }
+        });
 
         async function populateEventModal(event) {
           document.getElementById('eventTitle').value = event.summary || '';
