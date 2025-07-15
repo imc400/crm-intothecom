@@ -2127,6 +2127,11 @@ app.get('/', (req, res) => {
         function updateAuthButton(isAuthenticated) {
           const authButton = document.getElementById('authButton');
           
+          if (!authButton) {
+            console.warn('Auth button not found in DOM');
+            return;
+          }
+          
           if (isAuthenticated) {
             authButton.innerHTML = '<div class="connection-status connected">✓ Conectado</div>';
             startAutoSync();
@@ -2135,7 +2140,9 @@ app.get('/', (req, res) => {
             stopAutoSync();
             // Also update calendar grid to show connection prompt
             const calendarGrid = document.querySelector('.calendar-grid');
-            if (calendarGrid && document.querySelector('.nav-item.active')?.getAttribute('data-tab') === 'calendar') {
+            const currentTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab');
+            
+            if (calendarGrid && (currentTab === 'calendar' || !currentTab)) {
               calendarGrid.innerHTML = 
                 '<div class="auth-prompt">' +
                   '<h3>Conecta tu Google Calendar</h3>' +
@@ -2206,7 +2213,10 @@ app.get('/', (req, res) => {
         // Check auth status on page load
         document.addEventListener('DOMContentLoaded', () => {
           updateCalendarTitle();
-          checkAuthStatus();
+          // Add a small delay to ensure DOM is fully rendered
+          setTimeout(() => {
+            checkAuthStatus();
+          }, 100);
         });
         
         // Check auth status when tab becomes visible, but don't reload events unnecessarily
