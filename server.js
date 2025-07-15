@@ -4485,24 +4485,23 @@ app.get('/', (req, res) => {
               result.data.forEach(tag => {
                 const tagItem = document.createElement('div');
                 tagItem.className = 'tag-management-item';
-                tagItem.innerHTML = `
-                  <div class="tag-management-info">
-                    <span class="tag-badge" style="background: ${tag.color}; color: white; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;">
-                      ${tag.tag}
-                    </span>
-                    <span class="tag-count" style="color: #888; font-size: 12px;">
-                      ${tag.count} contacto${tag.count !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-                  <div class="tag-management-actions">
-                    <button class="btn-edit-tag" onclick="editTagFromManagement('${tag.id}', '${tag.tag.replace(/'/g, "\\'")}', '${tag.color}')">
-                      ✏️ Editar
-                    </button>
-                    <button class="btn-delete-tag" onclick="deleteTagFromManagement('${tag.id}', '${tag.tag.replace(/'/g, "\\'")}')">
-                      🗑️ Eliminar
-                    </button>
-                  </div>
-                `;
+                tagItem.innerHTML = 
+                  '<div class="tag-management-info">' +
+                    '<span class="tag-badge" style="background: ' + tag.color + '; color: white; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;">' +
+                      tag.tag +
+                    '</span>' +
+                    '<span class="tag-count" style="color: #888; font-size: 12px;">' +
+                      tag.count + ' contacto' + (tag.count !== 1 ? 's' : '') +
+                    '</span>' +
+                  '</div>' +
+                  '<div class="tag-management-actions">' +
+                    '<button class="btn-edit-tag" onclick="editTagFromManagement(\'' + tag.id + '\', \'' + tag.tag.replace(/'/g, "\\'") + '\', \'' + tag.color + '\')">' +
+                      '✏️ Editar' +
+                    '</button>' +
+                    '<button class="btn-delete-tag" onclick="deleteTagFromManagement(\'' + tag.id + '\', \'' + tag.tag.replace(/'/g, "\\'") + '\')">' +
+                      '🗑️ Eliminar' +
+                    '</button>' +
+                  '</div>';
                 tagList.appendChild(tagItem);
               });
             } else {
