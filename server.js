@@ -1583,9 +1583,9 @@ app.get('/', (req, res) => {
         
         .day-column.current-day-column {
           background: linear-gradient(135deg, 
-            rgba(255, 107, 0, 0.02) 0%, 
-            rgba(255, 133, 51, 0.01) 100%);
-          border-right: 2px solid rgba(255, 107, 0, 0.3);
+            rgba(255, 107, 0, 0.04) 0%, 
+            rgba(255, 133, 51, 0.02) 100%);
+          border-right: 1px solid rgba(255, 107, 0, 0.2);
           position: relative;
         }
         
@@ -1595,8 +1595,10 @@ app.get('/', (req, res) => {
           left: 0;
           top: 0;
           bottom: 0;
-          width: 3px;
-          background: linear-gradient(180deg, #FF6B00, #FF8533);
+          width: 2px;
+          background: linear-gradient(180deg, 
+            rgba(255, 107, 0, 0.6), 
+            rgba(255, 133, 51, 0.4));
           z-index: 1;
         }
         
@@ -1611,24 +1613,26 @@ app.get('/', (req, res) => {
         }
         
         .day-header.current-day {
-          background: linear-gradient(135deg, #FF6B00 0%, #FF8533 100%);
-          color: white;
+          background: linear-gradient(135deg, 
+            rgba(255, 107, 0, 0.12) 0%, 
+            rgba(255, 133, 51, 0.08) 100%);
+          color: #FF6B00;
           font-weight: 700;
           position: relative;
-          box-shadow: 0 4px 12px rgba(255, 107, 0, 0.3);
+          border: 1px solid rgba(255, 107, 0, 0.3);
+          box-shadow: 0 2px 8px rgba(255, 107, 0, 0.15);
         }
         
         .day-header.current-day::after {
           content: '';
           position: absolute;
-          bottom: -2px;
+          bottom: -1px;
           left: 50%;
           transform: translateX(-50%);
-          width: 0;
-          height: 0;
-          border-left: 6px solid transparent;
-          border-right: 6px solid transparent;
-          border-top: 6px solid #FF6B00;
+          width: 20px;
+          height: 2px;
+          background: linear-gradient(90deg, #FF6B00, #FF8533);
+          border-radius: 2px;
         }
         
         .event-block {
@@ -1680,6 +1684,41 @@ app.get('/', (req, res) => {
         .month-day.other-month {
           background: #f8fafc;
           color: #a0aec0;
+        }
+        
+        .month-day.current-day-month {
+          background: linear-gradient(135deg, 
+            rgba(255, 107, 0, 0.06) 0%, 
+            rgba(255, 133, 51, 0.03) 100%);
+          border: 1px solid rgba(255, 107, 0, 0.2);
+          position: relative;
+          box-shadow: 0 2px 8px rgba(255, 107, 0, 0.1);
+        }
+        
+        .month-day.current-day-month::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 2px;
+          background: linear-gradient(90deg, #FF6B00, #FF8533);
+          border-radius: 0 0 2px 2px;
+        }
+        
+        .month-day-number.today-number {
+          background: linear-gradient(135deg, #FF6B00, #FF8533);
+          color: white;
+          font-weight: 700;
+          border-radius: 8px;
+          box-shadow: 0 2px 8px rgba(255, 107, 0, 0.3);
+          transform: scale(1.05);
+        }
+        
+        .month-day-number.today-number:hover {
+          background: linear-gradient(135deg, #FF8533, #FF6B00);
+          color: white;
+          transform: scale(1.1);
         }
         
         .month-event {
@@ -4369,11 +4408,16 @@ app.get('/', (req, res) => {
           const year = now.getFullYear();
           const month = now.getMonth();
           
+          // Get today's date for highlighting
+          const today = new Date();
+          const todayDateString = today.toDateString();
+          
           console.log('Rendering month view for ' + year + '-' + (month + 1) + ':', {
             totalEvents: events.length,
             currentDate: currentDate.toDateString(),
             firstDay: new Date(year, month, 1).toDateString(),
-            lastDay: new Date(year, month + 1, 0).toDateString()
+            lastDay: new Date(year, month + 1, 0).toDateString(),
+            todayDateString: todayDateString
           });
           
           const firstDay = new Date(year, month, 1);
@@ -4396,10 +4440,22 @@ app.get('/', (req, res) => {
             date.setDate(startDate.getDate() + i);
             
             const isCurrentMonth = date.getMonth() === month;
-            const dayClass = isCurrentMonth ? 'month-day' : 'month-day other-month';
+            const isToday = date.toDateString() === todayDateString;
+            
+            let dayClass = isCurrentMonth ? 'month-day' : 'month-day other-month';
+            if (isToday) {
+              dayClass += ' current-day-month';
+            }
             
             html += '<div class="' + dayClass + '">';
-            html += '<div class="month-day-number" ' + safeOnclick('selectDayFromMonth', getLocalDateString(date)) + '>' + date.getDate() + '</div>';
+            
+            // Day number with special styling for today
+            let dayNumberClass = 'month-day-number';
+            if (isToday) {
+              dayNumberClass += ' today-number';
+            }
+            
+            html += '<div class="' + dayNumberClass + '" ' + safeOnclick('selectDayFromMonth', getLocalDateString(date)) + '>' + date.getDate() + '</div>';
             
             // Find events for this day
             const dayEvents = events.filter(event => {
