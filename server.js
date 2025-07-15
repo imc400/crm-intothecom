@@ -6674,24 +6674,23 @@ app.get('/', (req, res) => {
               return contact.tags.includes(stage.tag);
             });
             
-            const columnHtml = `
-              <div class="kanban-column" data-stage="${stage.tag}">
-                <div class="kanban-column-header">
-                  <div class="kanban-column-title" style="color: ${stage.color};">
-                    ${stage.name}
-                  </div>
-                  <div class="kanban-column-count">${stageContacts.length}</div>
-                </div>
-                <div class="kanban-cards" id="cards-${stage.tag.replace(/\s+/g, '-')}">
-                  ${stageContacts.map(contact => renderKanbanCard(contact)).join('')}
-                </div>
-                <div class="kanban-drop-zone" 
-                     ondrop="dropCard(event, '${stage.tag}')" 
-                     ondragover="allowDrop(event)">
-                  Arrastra aquí
-                </div>
-              </div>
-            `;
+            const columnHtml = 
+              '<div class="kanban-column" data-stage="' + stage.tag + '">' +
+                '<div class="kanban-column-header">' +
+                  '<div class="kanban-column-title" style="color: ' + stage.color + ';">' +
+                    stage.name +
+                  '</div>' +
+                  '<div class="kanban-column-count">' + stageContacts.length + '</div>' +
+                '</div>' +
+                '<div class="kanban-cards" id="cards-' + stage.tag.replace(/\s+/g, '-') + '">' +
+                  stageContacts.map(contact => renderKanbanCard(contact)).join('') +
+                '</div>' +
+                '<div class="kanban-drop-zone" ' +
+                     'ondrop="dropCard(event, \'' + stage.tag + '\')" ' +
+                     'ondragover="allowDrop(event)">' +
+                  'Arrastra aquí' +
+                '</div>' +
+              '</div>';
             
             kanbanBoard.innerHTML += columnHtml;
           });
@@ -6701,21 +6700,19 @@ app.get('/', (req, res) => {
           const meetingCount = contact.meeting_count || 0;
           const notes = contact.notes ? contact.notes.substring(0, 80) + '...' : '';
           
-          return `
-            <div class="kanban-card" 
-                 draggable="true" 
-                 ondragstart="dragStart(event, '${contact.email}')"
-                 onclick="showContactDetails('${contact.email}')">
-              <div class="kanban-card-header">
-                <div>
-                  <div class="kanban-card-name">${contact.name || 'Sin nombre'}</div>
-                  <div class="kanban-card-email">${contact.email}</div>
-                </div>
-                <div class="kanban-card-meetings">${meetingCount} reuniones</div>
-              </div>
-              ${notes ? `<div class="kanban-card-notes">${notes}</div>` : ''}
-            </div>
-          `;
+          return '<div class="kanban-card" ' +
+                   'draggable="true" ' +
+                   'ondragstart="dragStart(event, \'' + contact.email + '\')" ' +
+                   'onclick="showContactDetails(\'' + contact.email + '\')">' +
+                 '<div class="kanban-card-header">' +
+                   '<div>' +
+                     '<div class="kanban-card-name">' + (contact.name || 'Sin nombre') + '</div>' +
+                     '<div class="kanban-card-email">' + contact.email + '</div>' +
+                   '</div>' +
+                   '<div class="kanban-card-meetings">' + meetingCount + ' reuniones</div>' +
+                 '</div>' +
+                 (notes ? '<div class="kanban-card-notes">' + notes + '</div>' : '') +
+               '</div>';
         }
 
         // Drag and Drop Functions
