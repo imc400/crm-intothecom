@@ -6583,6 +6583,7 @@ app.get('/', (req, res) => {
 
         // Funnel Kanban Functions
         let funnelStages = [
+          { name: 'Sin etiqueta', tag: 'Untagged', color: '#718096' },
           { name: 'New Lead', tag: 'New Lead', color: '#FF6B00' },
           { name: 'Qualified', tag: 'Qualified', color: '#10B981' },
           { name: 'Proposal', tag: 'Proposal', color: '#3B82F6' },
@@ -6669,7 +6670,7 @@ app.get('/', (req, res) => {
           funnelStages.forEach(stage => {
             const stageContacts = funnelData.contacts.filter(contact => {
               if (!contact.tags || contact.tags.length === 0) {
-                return stage.tag === 'New Lead'; // Default untagged contacts to New Lead
+                return stage.tag === 'Untagged'; // Untagged contacts go to "Sin etiqueta"
               }
               return contact.tags.includes(stage.tag);
             });
@@ -6747,7 +6748,8 @@ app.get('/', (req, res) => {
               !funnelStages.find(s => s.tag === tag)
             ) : [];
             
-            if (!updatedTags.includes(newStage)) {
+            // If moving to "Sin etiqueta", don't add any tag (leave empty)
+            if (newStage !== 'Untagged' && !updatedTags.includes(newStage)) {
               updatedTags.push(newStage);
             }
             
