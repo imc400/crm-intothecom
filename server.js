@@ -381,6 +381,64 @@ app.get('/api/contacts/tag/:tag', async (req, res) => {
   }
 });
 
+// Sync event attendee tags with contact tags
+app.post('/api/sync-attendee-tags', async (req, res) => {
+  const { eventId, attendeeEmail, tags } = req.body;
+  
+  try {
+    // Validate input
+    if (!eventId || !attendeeEmail || !Array.isArray(tags)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required parameters: eventId, attendeeEmail, tags'
+      });
+    }
+    
+    // Check if the email is an IntoTheCom email
+    const isIntothecomEmail = attendeeEmail.includes('@intothecom.com') || attendeeEmail.includes('@intothecom');
+    
+    if (isIntothecomEmail && tags.includes('New Lead')) {
+      return res.status(400).json({
+        success: false,
+        error: 'Cannot mark IntoTheCom emails as leads'
+      });
+    }
+    
+    // Find or create contact
+    let contact = await pool.query('SELECT * FROM contacts WHERE email = $1', [attendeeEmail]);
+    
+    if (contact.rows.length === 0) {
+      // Create new contact if doesn't exist
+      const name = attendeeEmail.split('@')[0];
+      const insertResult = await pool.query(
+        'INSERT INTO contacts (email, name, first_seen, last_seen, tags) VALUES ($1, $2, CURRENT_DATE, CURRENT_DATE, $3) RETURNING *',
+        [attendeeEmail, name, tags]
+      );
+      contact = insertResult;
+    } else {
+      // Update existing contact with new tags
+      const updateResult = await pool.query(
+        'UPDATE contacts SET tags = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2 RETURNING *',
+        [tags, attendeeEmail]
+      );
+      contact = updateResult;
+    }
+    
+    res.json({
+      success: true,
+      data: contact.rows[0],
+      message: 'Attendee tags synchronized successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error syncing attendee tags:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to sync attendee tags: ' + error.message
+    });
+  }
+});
+
 // Get available tags
 app.get('/api/tags', async (req, res) => {
   try {
@@ -1924,6 +1982,42 @@ app.get('/', (req, res) => {
             
             <div id="contacts-tab" class="tab-content" style="display: none;">
               <div id="status"></div>
+              
+              <!-- Contacts Filter Section -->
+              <div class="contacts-filter-section" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                  <h3 style="margin: 0; color: #2d3748;">Filtros de Contactos</h3>
+                  <button class="btn btn-outline" onclick="clearContactFilters()" style="padding: 5px 10px; font-size: 12px;">
+                    Limpiar Filtros
+                  </button>
+                </div>
+                
+                <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+                  <input type="text" id="contactSearchInput" placeholder="Buscar por nombre o email..." 
+                         style="flex: 1; min-width: 200px; padding: 8px; border: 1px solid #cbd5e0; border-radius: 4px;" 
+                         onkeyup="filterContacts()" />
+                  
+                  <select id="contactTagFilter" style="padding: 8px; border: 1px solid #cbd5e0; border-radius: 4px;" 
+                          onchange="filterContacts()">
+                    <option value="">Todas las etiquetas</option>
+                    <option value="New Lead">🎯 New Lead</option>
+                    <option value="Untagged">📝 Sin etiquetas</option>
+                  </select>
+                  
+                  <select id="contactSortFilter" style="padding: 8px; border: 1px solid #cbd5e0; border-radius: 4px;" 
+                          onchange="filterContacts()">
+                    <option value="recent">Más recientes</option>
+                    <option value="name">Por nombre</option>
+                    <option value="meetings">Por reuniones</option>
+                  </select>
+                </div>
+                
+                <div id="contactFiltersActive" style="display: none; color: #4a5568; font-size: 14px;">
+                  <span>Filtros activos: </span>
+                  <span id="activeFiltersText"></span>
+                </div>
+              </div>
+              
               <div id="contactsList"></div>
             </div>
             
@@ -2737,6 +2831,24 @@ app.get('/', (req, res) => {
                 contactData.tags = newTags;
                 contactsData[email] = contactData;
                 
+                // Sync attendee tags with contact tags
+                try {
+                  await fetch('/api/sync-attendee-tags', {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                      eventId: currentEventId,
+                      attendeeEmail: email,
+                      tags: newTags
+                    })
+                  });
+                  console.log('Attendee tags synchronized successfully');
+                } catch (syncError) {
+                  console.error('Error syncing attendee tags:', syncError);
+                }
+                
                 // Update UI
                 const tagsContainer = document.getElementById('tags-' + email.replace(/[^a-zA-Z0-9]/g, ''));
                 if (tagsContainer) {
@@ -2781,6 +2893,23 @@ app.get('/', (req, res) => {
             if (result.success) {
               // Update local data
               contactData.tags = newTags;
+              
+              // Sync attendee tags with contact tags
+              fetch('/api/sync-attendee-tags', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  eventId: currentEventId,
+                  attendeeEmail: email,
+                  tags: newTags
+                })
+              }).then(syncResponse => {
+                console.log('Attendee tags synchronized successfully');
+              }).catch(syncError => {
+                console.error('Error syncing attendee tags:', syncError);
+              });
               
               // Update UI
               const tagsContainer = document.getElementById('tags-' + email.replace(/[^a-zA-Z0-9]/g, ''));
@@ -2930,6 +3059,24 @@ app.get('/', (req, res) => {
             const result = await response.json();
             
             if (result.success) {
+              // Sync attendee tags with contact tags
+              try {
+                await fetch('/api/sync-attendee-tags', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    eventId: currentEventId || 'contact-edit',
+                    attendeeEmail: currentContactData.email,
+                    tags: tags
+                  })
+                });
+                console.log('Contact tags synchronized successfully');
+              } catch (syncError) {
+                console.error('Error syncing contact tags:', syncError);
+              }
+              
               alert('Contacto actualizado exitosamente');
               closeContactModal();
               // Refresh contacts view if we're on contacts tab
@@ -3479,6 +3626,239 @@ app.get('/', (req, res) => {
             contactsList.innerHTML = '<div class="status error">Error: ' + error.message + '</div>';
           }
         }
+
+        // Global variable to store all contacts for filtering
+        let allContactsData = [];
+
+        // Enhanced loadContacts function with filtering support
+        async function loadContactsWithFiltering() {
+          const contactsList = document.getElementById('contactsList');
+          contactsList.innerHTML = '<div class="status loading">Cargando contactos...</div>';
+          
+          try {
+            const response = await fetch('/api/contacts');
+            const result = await response.json();
+            
+            if (result.success) {
+              allContactsData = result.data;
+              
+              // Load available tags for filter dropdown
+              await loadTagsForFilter();
+              
+              // Apply current filters
+              filterContacts();
+            } else {
+              contactsList.innerHTML = '<div class="status error">Error: ' + result.error + '</div>';
+            }
+          } catch (error) {
+            contactsList.innerHTML = '<div class="status error">Error: ' + error.message + '</div>';
+          }
+        }
+
+        // Load tags for filter dropdown
+        async function loadTagsForFilter() {
+          try {
+            const response = await fetch('/api/tags');
+            const result = await response.json();
+            
+            if (result.success) {
+              const tagFilter = document.getElementById('contactTagFilter');
+              // Clear existing options except "All tags"
+              tagFilter.innerHTML = '<option value="">Todas las etiquetas</option>';
+              
+              // Add available tags
+              result.data.forEach(tagInfo => {
+                const option = document.createElement('option');
+                option.value = tagInfo.tag;
+                option.textContent = getTagIcon(tagInfo.tag) + ' ' + tagInfo.tag + ' (' + tagInfo.count + ')';
+                tagFilter.appendChild(option);
+              });
+              
+              // Add "Untagged" option
+              const untaggedOption = document.createElement('option');
+              untaggedOption.value = 'Untagged';
+              untaggedOption.textContent = '📝 Sin etiquetas';
+              tagFilter.appendChild(untaggedOption);
+            }
+          } catch (error) {
+            console.error('Error loading tags for filter:', error);
+          }
+        }
+
+        // Filter contacts based on current filter settings
+        function filterContacts() {
+          const searchText = document.getElementById('contactSearchInput').value.toLowerCase();
+          const tagFilter = document.getElementById('contactTagFilter').value;
+          const sortFilter = document.getElementById('contactSortFilter').value;
+          
+          let filteredContacts = [...allContactsData];
+          
+          // Apply search filter
+          if (searchText) {
+            filteredContacts = filteredContacts.filter(contact => 
+              contact.email.toLowerCase().includes(searchText) ||
+              (contact.name && contact.name.toLowerCase().includes(searchText))
+            );
+          }
+          
+          // Apply tag filter
+          if (tagFilter) {
+            if (tagFilter === 'Untagged') {
+              filteredContacts = filteredContacts.filter(contact => 
+                !contact.tags || contact.tags.length === 0
+              );
+            } else {
+              filteredContacts = filteredContacts.filter(contact => 
+                contact.tags && contact.tags.includes(tagFilter)
+              );
+            }
+          }
+          
+          // Apply sorting
+          filteredContacts.sort((a, b) => {
+            switch (sortFilter) {
+              case 'name':
+                const nameA = (a.name || a.email).toLowerCase();
+                const nameB = (b.name || b.email).toLowerCase();
+                return nameA.localeCompare(nameB);
+              case 'meetings':
+                return (b.meeting_count || 0) - (a.meeting_count || 0);
+              case 'recent':
+              default:
+                return new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at);
+            }
+          });
+          
+          // Update active filters display
+          updateActiveFiltersDisplay(searchText, tagFilter, sortFilter);
+          
+          // Render filtered contacts
+          renderFilteredContacts(filteredContacts);
+        }
+
+        // Update active filters display
+        function updateActiveFiltersDisplay(searchText, tagFilter, sortFilter) {
+          const filtersActive = document.getElementById('contactFiltersActive');
+          const activeFiltersText = document.getElementById('activeFiltersText');
+          
+          const activeFilters = [];
+          if (searchText) activeFilters.push('Búsqueda: "' + searchText + '"');
+          if (tagFilter) activeFilters.push('Etiqueta: ' + tagFilter);
+          if (sortFilter !== 'recent') activeFilters.push('Orden: ' + getSortLabel(sortFilter));
+          
+          if (activeFilters.length > 0) {
+            activeFiltersText.textContent = activeFilters.join(' • ');
+            filtersActive.style.display = 'block';
+          } else {
+            filtersActive.style.display = 'none';
+          }
+        }
+
+        // Get sort label for display
+        function getSortLabel(sortFilter) {
+          switch (sortFilter) {
+            case 'name': return 'Por nombre';
+            case 'meetings': return 'Por reuniones';
+            case 'recent': return 'Más recientes';
+            default: return sortFilter;
+          }
+        }
+
+        // Get tag icon
+        function getTagIcon(tag) {
+          const tagIcons = {
+            'New Lead': '🎯',
+            'Untagged': '📝'
+          };
+          return tagIcons[tag] || '🏷️';
+        }
+
+        // Render filtered contacts
+        function renderFilteredContacts(contacts) {
+          const contactsList = document.getElementById('contactsList');
+          
+          if (contacts.length === 0) {
+            contactsList.innerHTML = '<div class="auth-prompt"><h3>No se encontraron contactos</h3><p>Intenta ajustar los filtros de búsqueda</p></div>';
+            return;
+          }
+          
+          // Organize contacts by tags for display
+          const contactsByTag = {};
+          
+          contacts.forEach(contact => {
+            if (!contact.tags || contact.tags.length === 0) {
+              if (!contactsByTag['Untagged']) contactsByTag['Untagged'] = [];
+              contactsByTag['Untagged'].push(contact);
+            } else {
+              contact.tags.forEach(tag => {
+                if (!contactsByTag[tag]) contactsByTag[tag] = [];
+                contactsByTag[tag].push(contact);
+              });
+            }
+          });
+          
+          let html = '';
+          
+          // Show each category
+          Object.keys(contactsByTag).forEach(tag => {
+            const tagContacts = contactsByTag[tag];
+            if (tagContacts.length > 0) {
+              const tagIcons = {
+                'New Lead': '🎯',
+                'Untagged': '📝'
+              };
+              
+              const tagColors = {
+                'New Lead': '#FF6B00',
+                'Untagged': '#718096'
+              };
+              
+              const icon = tagIcons[tag] || '🏷️';
+              const color = tagColors[tag] || '#718096';
+              
+              html += '<div style="margin-bottom: 25px;">';
+              html += '<h3 style="color: ' + color + '; margin-bottom: 15px; font-size: 18px;">' + icon + ' ' + tag + ' (' + tagContacts.length + ')</h3>';
+              
+              html += tagContacts.map(contact => {
+                const borderColor = tag === 'Untagged' ? '#e2e8f0' : color;
+                return '<div class="event-item contact-item" style="border-left: 4px solid ' + borderColor + '; cursor: pointer;" ' + safeOnclick('showContactDetails', contact.email) + '>' +
+                  '<div class="event-title">' + contact.email + '</div>' +
+                  '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + (contact.meeting_count || 0) + ' reuniones</div>' +
+                  (contact.tags && contact.tags.length > 0 ? 
+                    '<div class="contact-tags" style="margin-top: 8px;">' + 
+                      contact.tags.map(t => '<span class="tag-badge ' + t.toLowerCase().replace(/\s+/g, '-') + '">' + t + '</span>').join('') +
+                    '</div>' : '') +
+                  (contact.notes ? '<div style="margin-top: 8px; color: #718096; font-size: 14px;">' + contact.notes.substring(0, 100) + (contact.notes.length > 100 ? '...' : '') + '</div>' : '') +
+                  '<div style="margin-top: 8px; color: #718096; font-size: 12px;">Click para ver detalles</div>' +
+                '</div>';
+              }).join('');
+              
+              html += '</div>';
+            }
+          });
+          
+          contactsList.innerHTML = html;
+        }
+
+        // Clear all contact filters
+        function clearContactFilters() {
+          document.getElementById('contactSearchInput').value = '';
+          document.getElementById('contactTagFilter').value = '';
+          document.getElementById('contactSortFilter').value = 'recent';
+          filterContacts();
+        }
+
+        // Override the original loadContacts function to use the new filtering version
+        const originalLoadContacts = loadContacts;
+        loadContacts = function() {
+          // Check if we're on the contacts tab
+          const activeTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab');
+          if (activeTab === 'contacts') {
+            loadContactsWithFiltering();
+          } else {
+            originalLoadContacts();
+          }
+        };
       </script>
     </body>
     </html>
