@@ -1376,15 +1376,13 @@ app.use(express.static('public'));
 
 // Main app route
 app.get('/', (req, res) => {
-  res.send(`
-    <!DOCTYPE html>
+  res.send(String.raw`<!DOCTYPE html>
     <html lang="es">
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>IntoTheCom CRM</title>
       <script>
-        // CRITICAL: This script must load FIRST to avoid SyntaxError cascade
         console.log('=== CRITICAL AUTH SCRIPT LOADING ===');
         
         window.startGoogleAuth = function() {
@@ -1410,9 +1408,7 @@ app.get('/', (req, res) => {
             });
         };
         
-        // Also define as backup
         window.authenticateGoogle = window.startGoogleAuth;
-        
         console.log('=== AUTH FUNCTIONS DEFINED ===');
       </script>
       <style>
