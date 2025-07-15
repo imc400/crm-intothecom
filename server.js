@@ -681,6 +681,76 @@ app.post('/api/tags', async (req, res) => {
   }
 });
 
+// Update tag
+app.put('/api/tags/:tagId', async (req, res) => {
+  const { tagId } = req.params;
+  const { name, color } = req.body;
+  
+  if (!name || !name.trim()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Name is required'
+    });
+  }
+  
+  try {
+    // Get current tag data
+    const currentTagResult = await pool.query('SELECT name FROM tags WHERE id = $1', [tagId]);
+    
+    if (currentTagResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Tag not found'
+      });
+    }
+    
+    const currentTagName = currentTagResult.rows[0].name;
+    const newTagName = name.trim();
+    
+    // Check if new name already exists (if different from current)
+    if (currentTagName !== newTagName) {
+      const existingTagResult = await pool.query('SELECT id FROM tags WHERE name = $1 AND id != $2', [newTagName, tagId]);
+      
+      if (existingTagResult.rows.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Tag name already exists'
+        });
+      }
+    }
+    
+    // Update tag in database
+    const result = await pool.query(`
+      UPDATE tags 
+      SET name = $1, color = $2, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $3
+      RETURNING *
+    `, [newTagName, color || '#FF6B00', tagId]);
+    
+    // If tag name changed, update all contacts that have this tag
+    if (currentTagName !== newTagName) {
+      await pool.query(`
+        UPDATE contacts 
+        SET tags = array_remove(tags, $1) || ARRAY[$2],
+            updated_at = CURRENT_TIMESTAMP
+        WHERE tags @> ARRAY[$1]
+      `, [currentTagName, newTagName]);
+    }
+    
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: 'Tag updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating tag:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update tag'
+    });
+  }
+});
+
 // Delete tag
 app.delete('/api/tags/:tagId', async (req, res) => {
   const { tagId } = req.params;
@@ -2251,6 +2321,99 @@ app.get('/', (req, res) => {
           box-shadow: 0 4px 12px rgba(255, 107, 0, 0.3);
         }
         
+        .tag-management-buttons {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        
+        .btn-edit-tags {
+          background: linear-gradient(135deg, #4A90E2, #357ABD);
+          color: white;
+          border: none;
+          padding: 10px 16px;
+          border-radius: 8px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          white-space: nowrap;
+        }
+        
+        .btn-edit-tags:hover {
+          background: linear-gradient(135deg, #357ABD, #2E6DA4);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(74, 144, 226, 0.3);
+        }
+        
+        .tag-management-list {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+          max-height: 400px;
+          overflow-y: auto;
+          padding: 10px;
+        }
+        
+        .tag-management-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 12px 16px;
+          background: rgba(255, 255, 255, 0.1);
+          border: 1px solid rgba(255, 255, 255, 0.2);
+          border-radius: 12px;
+          backdrop-filter: blur(20px);
+          transition: all 0.3s ease;
+        }
+        
+        .tag-management-item:hover {
+          background: rgba(255, 255, 255, 0.15);
+          border-color: rgba(255, 255, 255, 0.3);
+          transform: translateY(-1px);
+        }
+        
+        .tag-management-info {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        
+        .tag-management-actions {
+          display: flex;
+          gap: 8px;
+        }
+        
+        .btn-edit-tag,
+        .btn-delete-tag {
+          padding: 6px 12px;
+          border: none;
+          border-radius: 6px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.3s ease;
+        }
+        
+        .btn-edit-tag {
+          background: linear-gradient(135deg, #28a745, #20c997);
+          color: white;
+        }
+        
+        .btn-edit-tag:hover {
+          background: linear-gradient(135deg, #20c997, #17a2b8);
+          transform: translateY(-1px);
+        }
+        
+        .btn-delete-tag {
+          background: linear-gradient(135deg, #dc3545, #c82333);
+          color: white;
+        }
+        
+        .btn-delete-tag:hover {
+          background: linear-gradient(135deg, #c82333, #bd2130);
+          transform: translateY(-1px);
+        }
+        
         .color-picker-container {
           display: flex;
           gap: 12px;
@@ -3368,9 +3531,14 @@ app.get('/', (req, res) => {
                       <option value="New Lead">● New Lead</option>
                       <option value="Untagged">○ Sin etiquetas</option>
                     </select>
-                    <button class="btn-create-tag" onclick="showCreateTagModal()" title="Crear nueva etiqueta">
-                      + Nueva Etiqueta
-                    </button>
+                    <div class="tag-management-buttons">
+                      <button class="btn-create-tag" onclick="showCreateTagModal()" title="Crear nueva etiqueta">
+                        + Nueva Etiqueta
+                      </button>
+                      <button class="btn-edit-tags" onclick="showTagManagementModal()" title="Editar etiquetas existentes">
+                        ✏️ Editar Etiquetas
+                      </button>
+                    </div>
                   </div>
                   
                   <select id="contactSortFilter" class="filter-select" onchange="filterContacts()">
@@ -3563,6 +3731,65 @@ app.get('/', (req, res) => {
           <div class="modal-footer">
             <button class="btn-cancel" onclick="closeCreateTagModal()">Cancelar</button>
             <button class="btn-save" onclick="createNewTag()">Crear Etiqueta</button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Edit Tag Modal -->
+      <div id="editTagModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Editar Etiqueta</h2>
+            <span class="close-btn" onclick="closeEditTagModal()">&times;</span>
+          </div>
+          
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">Nombre de la Etiqueta *</label>
+              <input type="text" id="editTagName" class="form-input" placeholder="Ej: Cliente Potencial" maxlength="50">
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Color de la Etiqueta</label>
+              <div class="color-picker-container">
+                <input type="color" id="editTagColor" class="form-color-input" value="#FF6B00">
+                <div class="color-preview">
+                  <span id="editColorPreviewText">Etiqueta</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Vista Previa</label>
+              <div class="tag-preview">
+                <span id="editTagPreview" class="tag-badge">Etiqueta</span>
+              </div>
+            </div>
+          </div>
+          
+          <div class="modal-footer">
+            <button class="btn-cancel" onclick="closeEditTagModal()">Cancelar</button>
+            <button class="btn-save" onclick="updateTag()">Guardar Cambios</button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Tag Management Modal -->
+      <div id="tagManagementModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Gestión de Etiquetas</h2>
+            <span class="close-btn" onclick="closeTagManagementModal()">&times;</span>
+          </div>
+          
+          <div class="modal-body">
+            <div class="tag-management-list" id="tagManagementList">
+              <!-- Tag items will be populated here -->
+            </div>
+          </div>
+          
+          <div class="modal-footer">
+            <button class="btn-cancel" onclick="closeTagManagementModal()">Cerrar</button>
           </div>
         </div>
       </div>
@@ -4059,6 +4286,42 @@ app.get('/', (req, res) => {
           document.getElementById('createTagModal').style.display = 'none';
         }
         
+        // Edit Tag Modal Functions
+        let currentEditingTagId = null;
+        
+        function showEditTagModal(tagId, tagName, tagColor) {
+          currentEditingTagId = tagId;
+          document.getElementById('editTagModal').style.display = 'block';
+          document.getElementById('editTagName').value = tagName;
+          document.getElementById('editTagColor').value = tagColor;
+          updateEditTagPreview();
+        }
+        
+        function closeEditTagModal() {
+          document.getElementById('editTagModal').style.display = 'none';
+          currentEditingTagId = null;
+        }
+        
+        function updateEditTagPreview() {
+          const name = document.getElementById('editTagName').value || 'Etiqueta';
+          const color = document.getElementById('editTagColor').value;
+          
+          const preview = document.getElementById('editTagPreview');
+          const colorPreview = document.getElementById('editColorPreviewText');
+          
+          if (preview) {
+            preview.style.background = color;
+            preview.style.color = 'white';
+            preview.textContent = name;
+          }
+          
+          if (colorPreview) {
+            colorPreview.style.background = color;
+            colorPreview.style.color = 'white';
+            colorPreview.textContent = name;
+          }
+        }
+        
         function updateTagPreview() {
           const name = document.getElementById('newTagName').value || 'Nueva Etiqueta';
           const color = document.getElementById('newTagColor').value;
@@ -4136,6 +4399,10 @@ app.get('/', (req, res) => {
               loadTagsAndContacts();
               // Reload contacts to reflect changes
               loadContactsWithFilters();
+              // Reload tag management modal if open
+              if (document.getElementById('tagManagementModal').style.display === 'block') {
+                loadTagManagementList();
+              }
             } else {
               alert('Error al eliminar etiqueta: ' + result.error);
             }
@@ -4143,6 +4410,117 @@ app.get('/', (req, res) => {
             console.error('Error deleting tag:', error);
             alert('Error de conexión al eliminar etiqueta');
           }
+        }
+        
+        async function updateTag() {
+          const name = document.getElementById('editTagName').value.trim();
+          const color = document.getElementById('editTagColor').value;
+          
+          if (!name) {
+            alert('Por favor ingresa un nombre para la etiqueta');
+            return;
+          }
+          
+          if (!currentEditingTagId) {
+            alert('Error: No se ha seleccionado ninguna etiqueta para editar');
+            return;
+          }
+          
+          try {
+            const response = await fetch('/api/tags/' + currentEditingTagId, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                name: name,
+                color: color
+              })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              alert('Etiqueta actualizada exitosamente');
+              closeEditTagModal();
+              // Reload tags for filter
+              loadTagsForFilter();
+              // Reload available tags for events
+              loadTagsAndContacts();
+              // Reload contacts to reflect changes
+              loadContactsWithFilters();
+              // Reload tag management modal if open
+              if (document.getElementById('tagManagementModal').style.display === 'block') {
+                loadTagManagementList();
+              }
+            } else {
+              alert('Error al actualizar etiqueta: ' + result.error);
+            }
+          } catch (error) {
+            console.error('Error updating tag:', error);
+            alert('Error de conexión al actualizar etiqueta');
+          }
+        }
+        
+        // Tag Management Modal Functions
+        async function showTagManagementModal() {
+          document.getElementById('tagManagementModal').style.display = 'block';
+          await loadTagManagementList();
+        }
+        
+        function closeTagManagementModal() {
+          document.getElementById('tagManagementModal').style.display = 'none';
+        }
+        
+        async function loadTagManagementList() {
+          const tagList = document.getElementById('tagManagementList');
+          tagList.innerHTML = '<div class="status loading">Cargando etiquetas...</div>';
+          
+          try {
+            const response = await fetch('/api/tags');
+            const result = await response.json();
+            
+            if (result.success && result.data.length > 0) {
+              tagList.innerHTML = '';
+              result.data.forEach(tag => {
+                const tagItem = document.createElement('div');
+                tagItem.className = 'tag-management-item';
+                tagItem.innerHTML = `
+                  <div class="tag-management-info">
+                    <span class="tag-badge" style="background: ${tag.color}; color: white; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;">
+                      ${tag.tag}
+                    </span>
+                    <span class="tag-count" style="color: #888; font-size: 12px;">
+                      ${tag.count} contacto${tag.count !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div class="tag-management-actions">
+                    <button class="btn-edit-tag" onclick="editTagFromManagement('${tag.id}', '${tag.tag.replace(/'/g, "\\'")}', '${tag.color}')">
+                      ✏️ Editar
+                    </button>
+                    <button class="btn-delete-tag" onclick="deleteTagFromManagement('${tag.id}', '${tag.tag.replace(/'/g, "\\'")}')">
+                      🗑️ Eliminar
+                    </button>
+                  </div>
+                `;
+                tagList.appendChild(tagItem);
+              });
+            } else {
+              tagList.innerHTML = '<div class="status info">No hay etiquetas disponibles</div>';
+            }
+          } catch (error) {
+            console.error('Error loading tag management list:', error);
+            tagList.innerHTML = '<div class="status error">Error al cargar las etiquetas</div>';
+          }
+        }
+        
+        function editTagFromManagement(tagId, tagName, tagColor) {
+          closeTagManagementModal();
+          showEditTagModal(tagId, tagName, tagColor);
+        }
+        
+        function deleteTagFromManagement(tagId, tagName) {
+          deleteTag(tagId, tagName);
         }
         
         // Add event listeners for tag preview
@@ -4155,6 +4533,17 @@ app.get('/', (req, res) => {
           }
           if (colorInput) {
             colorInput.addEventListener('input', updateTagPreview);
+          }
+          
+          // Add event listeners for edit tag modal
+          const editNameInput = document.getElementById('editTagName');
+          const editColorInput = document.getElementById('editTagColor');
+          
+          if (editNameInput) {
+            editNameInput.addEventListener('input', updateEditTagPreview);
+          }
+          if (editColorInput) {
+            editColorInput.addEventListener('input', updateEditTagPreview);
           }
         });
 
@@ -5426,13 +5815,16 @@ app.get('/', (req, res) => {
               // Clear existing options except "All tags"
               tagFilter.innerHTML = '<option value="">Todas las etiquetas</option>';
               
-              // Add available tags
+              // Add available tags with edit functionality
               result.data.forEach(tagInfo => {
                 const option = document.createElement('option');
                 option.value = tagInfo.tag;
                 option.textContent = getTagIcon(tagInfo.tag) + ' ' + tagInfo.tag + ' (' + tagInfo.count + ')';
                 tagFilter.appendChild(option);
               });
+              
+              // Store tags data for editing
+              window.availableTagsData = result.data;
               
               // Add "Untagged" option
               const untaggedOption = document.createElement('option');
