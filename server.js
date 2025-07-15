@@ -1204,10 +1204,17 @@ app.get('/api/auth/google/callback', async (req, res) => {
           <h2>✅ Authentication Successful!</h2>
           <p>You can now close this window and return to your CRM.</p>
           <script>
+            console.log('Callback page loaded');
             // Notify parent window and close
             if (window.opener) {
+              console.log('Found opener window, sending message');
               window.opener.postMessage({type: 'google-auth-success'}, '*');
-              window.close();
+              console.log('Message sent, closing window');
+              setTimeout(() => {
+                window.close();
+              }, 2000);
+            } else {
+              console.log('No opener window found');
             }
           </script>
         </body>
@@ -1388,7 +1395,11 @@ app.get('/', (req, res) => {
               console.log('Auth result:', result);
               if (result.success && result.authUrl) {
                 console.log('Opening auth window...');
-                window.open(result.authUrl, '_blank');
+                const authWindow = window.open(result.authUrl, '_blank', 'width=600,height=600');
+                console.log('Auth window opened:', authWindow);
+                if (!authWindow) {
+                  alert('No se pudo abrir la ventana de autenticación. Verifique que no esté bloqueada por el navegador.');
+                }
               } else {
                 alert('Error: ' + (result.error || 'Unknown error'));
               }
@@ -3917,6 +3928,7 @@ app.get('/', (req, res) => {
 
         // Listen for authentication success message
         window.addEventListener('message', (event) => {
+          console.log('Message received:', event.data);
           if (event.data && event.data.type === 'google-auth-success') {
             console.log('Auth success received - checking status and reloading');
             // Longer delay to ensure auth process is complete server-side
