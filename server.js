@@ -529,6 +529,48 @@ app.get('/api/contacts/tag/:tag', async (req, res) => {
   }
 });
 
+// Update contact tags for funnel stage management
+app.put('/api/contacts/:email/tags', async (req, res) => {
+  const { email } = req.params;
+  const { tags } = req.body;
+  
+  try {
+    // Validate input
+    if (!email || !Array.isArray(tags)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email and tags array are required'
+      });
+    }
+    
+    // Update contact tags
+    const result = await pool.query(
+      'UPDATE contacts SET tags = $1, updated_at = CURRENT_TIMESTAMP WHERE email = $2 RETURNING *',
+      [tags, email]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Contact not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: 'Contact tags updated successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error updating contact tags:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update contact tags'
+    });
+  }
+});
+
 // Sync event attendee tags with contact tags
 app.post('/api/sync-attendee-tags', async (req, res) => {
   const { eventId, attendeeEmail, tags } = req.body;
@@ -2984,6 +3026,206 @@ app.get('/', (req, res) => {
           font-weight: 500;
         }
         
+        /* Funnel Kanban Styles */
+        .funnel-container {
+          padding: 0;
+        }
+        
+        .funnel-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 32px;
+          padding: 24px;
+          background: var(--glass-bg);
+          backdrop-filter: blur(20px);
+          border: 1px solid var(--glass-border);
+          border-radius: 18px;
+          box-shadow: var(--shadow-soft);
+        }
+        
+        .funnel-header h3 {
+          margin: 0;
+          color: var(--text-primary);
+          font-size: 24px;
+          font-weight: 700;
+        }
+        
+        .funnel-actions {
+          display: flex;
+          gap: 12px;
+        }
+        
+        .funnel-metrics {
+          display: flex;
+          gap: 20px;
+          margin-bottom: 32px;
+          flex-wrap: wrap;
+        }
+        
+        .metric-card {
+          background: var(--glass-bg);
+          backdrop-filter: blur(20px);
+          border: 1px solid var(--glass-border);
+          border-radius: 16px;
+          padding: 24px;
+          min-width: 160px;
+          text-align: center;
+          box-shadow: var(--shadow-soft);
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .metric-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+        }
+        
+        .metric-value {
+          display: block;
+          font-size: 32px;
+          font-weight: 700;
+          color: #FF6B00;
+          margin-bottom: 8px;
+        }
+        
+        .metric-label {
+          font-size: 14px;
+          color: var(--text-secondary);
+          font-weight: 500;
+        }
+        
+        .kanban-board {
+          display: flex;
+          gap: 24px;
+          overflow-x: auto;
+          padding: 8px;
+          min-height: 600px;
+        }
+        
+        .kanban-column {
+          min-width: 320px;
+          background: var(--glass-bg);
+          backdrop-filter: blur(20px);
+          border: 1px solid var(--glass-border);
+          border-radius: 16px;
+          padding: 20px;
+          box-shadow: var(--shadow-soft);
+          display: flex;
+          flex-direction: column;
+        }
+        
+        .kanban-column-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 20px;
+          padding-bottom: 16px;
+          border-bottom: 2px solid var(--glass-border);
+        }
+        
+        .kanban-column-title {
+          font-size: 18px;
+          font-weight: 600;
+          color: var(--text-primary);
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        
+        .kanban-column-count {
+          background: rgba(255, 107, 0, 0.1);
+          color: #FF6B00;
+          padding: 4px 12px;
+          border-radius: 12px;
+          font-size: 14px;
+          font-weight: 600;
+        }
+        
+        .kanban-cards {
+          flex: 1;
+          min-height: 400px;
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        
+        .kanban-card {
+          background: var(--surface-primary);
+          border: 1px solid var(--border-light);
+          border-radius: 12px;
+          padding: 16px;
+          cursor: grab;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+        
+        .kanban-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+          border-color: #FF6B00;
+        }
+        
+        .kanban-card:active {
+          cursor: grabbing;
+          transform: rotate(2deg);
+        }
+        
+        .kanban-card-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 12px;
+        }
+        
+        .kanban-card-name {
+          font-size: 16px;
+          font-weight: 600;
+          color: var(--text-primary);
+          margin-bottom: 4px;
+        }
+        
+        .kanban-card-email {
+          font-size: 14px;
+          color: var(--text-secondary);
+        }
+        
+        .kanban-card-meetings {
+          font-size: 12px;
+          color: #FF6B00;
+          background: rgba(255, 107, 0, 0.1);
+          padding: 2px 8px;
+          border-radius: 8px;
+          font-weight: 500;
+        }
+        
+        .kanban-card-notes {
+          font-size: 14px;
+          color: var(--text-secondary);
+          margin-top: 12px;
+          padding-top: 12px;
+          border-top: 1px solid var(--border-light);
+          line-height: 1.4;
+        }
+        
+        .kanban-drop-zone {
+          min-height: 60px;
+          border: 2px dashed var(--border-light);
+          border-radius: 12px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: var(--text-secondary);
+          font-size: 14px;
+          transition: all 0.3s ease;
+          margin-top: auto;
+        }
+        
+        .kanban-drop-zone.drag-over {
+          border-color: #FF6B00;
+          background: rgba(255, 107, 0, 0.05);
+          color: #FF6B00;
+        }
+        
         /* Enhanced Calendar Components */
         .calendar-controls {
           background: var(--glass-bg);
@@ -3586,6 +3828,10 @@ app.get('/', (req, res) => {
               <span class="nav-icon">◎</span>
               <span>Contactos</span>
             </a>
+            <a href="#" class="nav-item" data-tab="funnel">
+              <span class="nav-icon">⬇</span>
+              <span>Embudo</span>
+            </a>
             <a href="#" class="nav-item" data-tab="sync">
               <span class="nav-icon">⟲</span>
               <span>Sincronización</span>
@@ -3686,6 +3932,41 @@ app.get('/', (req, res) => {
               </div>
               
               <div id="contactsList"></div>
+            </div>
+            
+            <div id="funnel-tab" class="tab-content" style="display: none;">
+              <div class="funnel-container">
+                <div class="funnel-header">
+                  <h3>Pipeline de Ventas</h3>
+                  <div class="funnel-actions">
+                    <button class="btn btn-outline btn-sm" onclick="configureFunnelStages()">
+                      Configurar Etapas
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="refreshFunnelData()">
+                      Actualizar
+                    </button>
+                  </div>
+                </div>
+                
+                <div class="funnel-metrics">
+                  <div class="metric-card">
+                    <span class="metric-value" id="totalLeads">0</span>
+                    <span class="metric-label">Total Leads</span>
+                  </div>
+                  <div class="metric-card">
+                    <span class="metric-value" id="conversionRate">0%</span>
+                    <span class="metric-label">Tasa Conversión</span>
+                  </div>
+                  <div class="metric-card">
+                    <span class="metric-value" id="avgStageTime">0d</span>
+                    <span class="metric-label">Tiempo Promedio</span>
+                  </div>
+                </div>
+                
+                <div class="kanban-board" id="kanbanBoard">
+                  <!-- Kanban columns will be populated here -->
+                </div>
+              </div>
             </div>
             
             <div id="sync-tab" class="tab-content" style="display: none;">
@@ -4018,13 +4299,16 @@ app.get('/', (req, res) => {
             const titles = {
               'calendar': 'Calendario',
               'contacts': 'Contactos',
+              'funnel': 'Embudo',
               'sync': 'Sincronización'
             };
             document.getElementById('pageTitle').textContent = titles[tabId];
             
-            // Auto-load contacts when switching to contacts tab
+            // Auto-load data when switching tabs
             if (tabId === 'contacts') {
               loadContacts();
+            } else if (tabId === 'funnel') {
+              loadFunnelData();
             }
           });
         });
@@ -6295,6 +6579,210 @@ app.get('/', (req, res) => {
           document.getElementById('contactTagFilter').value = '';
           document.getElementById('contactSortFilter').value = 'recent';
           filterContacts();
+        }
+
+        // Funnel Kanban Functions
+        let funnelStages = [
+          { name: 'New Lead', tag: 'New Lead', color: '#FF6B00' },
+          { name: 'Qualified', tag: 'Qualified', color: '#10B981' },
+          { name: 'Proposal', tag: 'Proposal', color: '#3B82F6' },
+          { name: 'Negotiation', tag: 'Negotiation', color: '#F59E0B' },
+          { name: 'Closed Won', tag: 'Closed Won', color: '#059669' },
+          { name: 'Closed Lost', tag: 'Closed Lost', color: '#EF4444' }
+        ];
+        
+        let funnelData = {
+          contacts: [],
+          metrics: {
+            totalLeads: 0,
+            conversionRate: 0,
+            avgStageTime: 0
+          }
+        };
+
+        async function loadFunnelData() {
+          try {
+            // Load contacts
+            const contactsResponse = await fetch('/api/contacts');
+            const contactsResult = await contactsResponse.json();
+            
+            if (contactsResult.success) {
+              funnelData.contacts = contactsResult.data;
+              
+              // Load available tags to sync stages
+              const tagsResponse = await fetch('/api/tags');
+              const tagsResult = await tagsResponse.json();
+              
+              if (tagsResult.success) {
+                // Update stages with actual tags from database
+                const dbTags = tagsResult.data;
+                funnelStages = funnelStages.map(stage => {
+                  const dbTag = dbTags.find(t => t.tag === stage.tag);
+                  if (dbTag) {
+                    return { ...stage, color: dbTag.color };
+                  }
+                  return stage;
+                });
+                
+                // Add any additional tags from database as new stages
+                dbTags.forEach(dbTag => {
+                  if (!funnelStages.find(s => s.tag === dbTag.tag)) {
+                    funnelStages.push({
+                      name: dbTag.tag,
+                      tag: dbTag.tag,
+                      color: dbTag.color
+                    });
+                  }
+                });
+              }
+              
+              calculateFunnelMetrics();
+              renderFunnelBoard();
+            }
+          } catch (error) {
+            console.error('Error loading funnel data:', error);
+          }
+        }
+
+        function calculateFunnelMetrics() {
+          const totalContacts = funnelData.contacts.length;
+          const closedWon = funnelData.contacts.filter(c => 
+            c.tags && c.tags.includes('Closed Won')
+          ).length;
+          
+          funnelData.metrics = {
+            totalLeads: totalContacts,
+            conversionRate: totalContacts > 0 ? Math.round((closedWon / totalContacts) * 100) : 0,
+            avgStageTime: 7 // Placeholder - could be calculated from contact history
+          };
+          
+          // Update metrics display
+          document.getElementById('totalLeads').textContent = funnelData.metrics.totalLeads;
+          document.getElementById('conversionRate').textContent = funnelData.metrics.conversionRate + '%';
+          document.getElementById('avgStageTime').textContent = funnelData.metrics.avgStageTime + 'd';
+        }
+
+        function renderFunnelBoard() {
+          const kanbanBoard = document.getElementById('kanbanBoard');
+          kanbanBoard.innerHTML = '';
+          
+          funnelStages.forEach(stage => {
+            const stageContacts = funnelData.contacts.filter(contact => {
+              if (!contact.tags || contact.tags.length === 0) {
+                return stage.tag === 'New Lead'; // Default untagged contacts to New Lead
+              }
+              return contact.tags.includes(stage.tag);
+            });
+            
+            const columnHtml = `
+              <div class="kanban-column" data-stage="${stage.tag}">
+                <div class="kanban-column-header">
+                  <div class="kanban-column-title" style="color: ${stage.color};">
+                    ${stage.name}
+                  </div>
+                  <div class="kanban-column-count">${stageContacts.length}</div>
+                </div>
+                <div class="kanban-cards" id="cards-${stage.tag.replace(/\s+/g, '-')}">
+                  ${stageContacts.map(contact => renderKanbanCard(contact)).join('')}
+                </div>
+                <div class="kanban-drop-zone" 
+                     ondrop="dropCard(event, '${stage.tag}')" 
+                     ondragover="allowDrop(event)">
+                  Arrastra aquí
+                </div>
+              </div>
+            `;
+            
+            kanbanBoard.innerHTML += columnHtml;
+          });
+        }
+
+        function renderKanbanCard(contact) {
+          const meetingCount = contact.meeting_count || 0;
+          const notes = contact.notes ? contact.notes.substring(0, 80) + '...' : '';
+          
+          return `
+            <div class="kanban-card" 
+                 draggable="true" 
+                 ondragstart="dragStart(event, '${contact.email}')"
+                 onclick="showContactDetails('${contact.email}')">
+              <div class="kanban-card-header">
+                <div>
+                  <div class="kanban-card-name">${contact.name || 'Sin nombre'}</div>
+                  <div class="kanban-card-email">${contact.email}</div>
+                </div>
+                <div class="kanban-card-meetings">${meetingCount} reuniones</div>
+              </div>
+              ${notes ? `<div class="kanban-card-notes">${notes}</div>` : ''}
+            </div>
+          `;
+        }
+
+        // Drag and Drop Functions
+        function dragStart(event, email) {
+          event.dataTransfer.setData('text/plain', email);
+          event.target.style.opacity = '0.5';
+        }
+
+        function allowDrop(event) {
+          event.preventDefault();
+          event.target.classList.add('drag-over');
+        }
+
+        function dropCard(event, newStage) {
+          event.preventDefault();
+          const email = event.dataTransfer.getData('text/plain');
+          
+          // Remove drag-over class
+          event.target.classList.remove('drag-over');
+          
+          // Find contact and update stage
+          const contact = funnelData.contacts.find(c => c.email === email);
+          if (contact) {
+            updateContactStage(contact, newStage);
+          }
+        }
+
+        async function updateContactStage(contact, newStage) {
+          try {
+            // Remove old stage tags and add new one
+            const updatedTags = contact.tags ? contact.tags.filter(tag => 
+              !funnelStages.find(s => s.tag === tag)
+            ) : [];
+            
+            if (!updatedTags.includes(newStage)) {
+              updatedTags.push(newStage);
+            }
+            
+            // Update contact tags in database
+            const response = await fetch(`/api/contacts/${contact.email}/tags`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ tags: updatedTags })
+            });
+            
+            if (response.ok) {
+              // Update local data
+              contact.tags = updatedTags;
+              
+              // Refresh board
+              calculateFunnelMetrics();
+              renderFunnelBoard();
+            } else {
+              alert('Error actualizando etapa del contacto');
+            }
+          } catch (error) {
+            console.error('Error updating contact stage:', error);
+            alert('Error actualizando etapa del contacto');
+          }
+        }
+
+        function configureFunnelStages() {
+          alert('Configuración de etapas - Próximamente');
+        }
+
+        function refreshFunnelData() {
+          loadFunnelData();
         }
 
         // Override the original loadContacts function to use the new filtering version
