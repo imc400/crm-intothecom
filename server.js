@@ -2503,17 +2503,26 @@ app.get('/', (req, res) => {
           
           return tags.map(tag => {
             const tagClass = tag.toLowerCase().replace(/\s+/g, '-');
+            const escapedTag = tag.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
             return '<span class="tag-badge ' + tagClass + '">' + tag + 
-                   '<span class="tag-remove" onclick="removeTag(&quot;' + tag + '&quot;, this)">×</span></span>';
+                   '<span class="tag-remove" onclick="removeTag(\'' + escapedTag + '\', this)">×</span></span>';
           }).join('');
         }
 
         function renderTagOptions(email, currentTags) {
+          if (!availableTags || !Array.isArray(availableTags)) {
+            console.warn('availableTags is not available, using fallback');
+            return '<div class="tag-option-error">Tags no disponibles</div>';
+          }
+          
           return availableTags.map(tagInfo => {
             const tag = tagInfo.tag;
             const isSelected = currentTags.includes(tag);
+            const escapedEmail = email.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+            const escapedTag = tag.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+            
             return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" ' +
-                   'onclick="toggleTag(&quot;' + email + '&quot;, &quot;' + tag + '&quot;, this)">' +
+                   'onclick="toggleTag(\'' + escapedEmail + '\', \'' + escapedTag + '\', this)">' +
                    tag + (isSelected ? ' ✓' : '') +
                    '</div>';
           }).join('');
@@ -2522,6 +2531,11 @@ app.get('/', (req, res) => {
         function toggleTagDropdown(email) {
           const dropdownId = 'dropdown-' + email.replace(/[^a-zA-Z0-9]/g, '');
           const dropdown = document.getElementById(dropdownId);
+          
+          if (!dropdown) {
+            console.error('Dropdown not found for email:', email, 'ID:', dropdownId);
+            return;
+          }
           
           // Close all other dropdowns
           document.querySelectorAll('.tag-dropdown-content').forEach(d => {
@@ -2580,7 +2594,11 @@ app.get('/', (req, res) => {
                   
                   // Update UI
                   const tagsContainer = document.getElementById('tags-' + email.replace(/[^a-zA-Z0-9]/g, ''));
-                  tagsContainer.innerHTML = renderContactTags(newTags);
+                  if (tagsContainer) {
+                    tagsContainer.innerHTML = renderContactTags(newTags);
+                  } else {
+                    console.warn('Tags container not found for email:', email);
+                  }
                   
                   console.log('Contact created and tag added successfully');
                   return;
@@ -2663,7 +2681,11 @@ app.get('/', (req, res) => {
                 
                 // Update UI
                 const tagsContainer = document.getElementById('tags-' + email.replace(/[^a-zA-Z0-9]/g, ''));
-                tagsContainer.innerHTML = renderContactTags(newTags);
+                if (tagsContainer) {
+                  tagsContainer.innerHTML = renderContactTags(newTags);
+                } else {
+                  console.warn('Tags container not found for email:', email);
+                }
                 
                 console.log('Tag updated successfully');
               } else {
@@ -2704,7 +2726,11 @@ app.get('/', (req, res) => {
               
               // Update UI
               const tagsContainer = document.getElementById('tags-' + email.replace(/[^a-zA-Z0-9]/g, ''));
-              tagsContainer.innerHTML = renderContactTags(newTags);
+              if (tagsContainer) {
+                tagsContainer.innerHTML = renderContactTags(newTags);
+              } else {
+                console.warn('Tags container not found for email:', email);
+              }
               
               // Update dropdown
               const dropdown = document.getElementById('dropdown-' + email.replace(/[^a-zA-Z0-9]/g, ''));
