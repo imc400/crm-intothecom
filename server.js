@@ -2087,6 +2087,622 @@ app.get('/', (req, res) => {
             text-align: center;
           }
         }
+        
+        /* Enhanced Contact Components */
+        .filter-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 24px;
+          position: relative;
+        }
+        
+        .filter-title {
+          margin: 0;
+          color: var(--text-primary);
+          font-size: 22px;
+          font-weight: 700;
+          position: relative;
+        }
+        
+        .btn-sm {
+          padding: 8px 16px;
+          font-size: 13px;
+          border-radius: 8px;
+        }
+        
+        .filter-input,
+        .filter-select {
+          padding: 14px 18px;
+          border: 1px solid var(--border-light);
+          border-radius: 14px;
+          font-size: 14px;
+          background: var(--surface-primary);
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+          font-weight: 500;
+        }
+        
+        .filter-input:focus,
+        .filter-select:focus {
+          outline: none;
+          border-color: #FF6B00;
+          box-shadow: 0 0 0 4px rgba(255, 107, 0, 0.12),
+                      0 8px 20px rgba(255, 107, 0, 0.2);
+          transform: translateY(-2px);
+        }
+        
+        .filter-input {
+          flex: 1;
+          min-width: 280px;
+        }
+        
+        .filter-select {
+          min-width: 180px;
+        }
+        
+        .active-filters {
+          margin-top: 16px;
+          padding: 12px 16px;
+          background: rgba(255, 107, 0, 0.1);
+          border-radius: 12px;
+          border: 1px solid rgba(255, 107, 0, 0.2);
+          font-size: 14px;
+          color: var(--text-secondary);
+          font-weight: 500;
+        }
+        
+        /* Enhanced Calendar Components */
+        .calendar-controls {
+          background: var(--glass-bg);
+          backdrop-filter: blur(20px);
+          border: 1px solid var(--glass-border);
+          border-radius: 18px;
+          padding: 24px;
+          margin-bottom: 32px;
+          box-shadow: var(--shadow-soft);
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .calendar-controls::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: linear-gradient(135deg, 
+            rgba(255, 255, 255, 0.15) 0%, 
+            rgba(255, 255, 255, 0.05) 100%);
+          pointer-events: none;
+          border-radius: 18px;
+        }
+        
+        .calendar-date {
+          font-size: 28px;
+          font-weight: 800;
+          color: var(--text-primary);
+          letter-spacing: -0.5px;
+          position: relative;
+        }
+        
+        .calendar-nav {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          position: relative;
+        }
+        
+        .view-btn {
+          background: var(--surface-primary);
+          border: 1px solid var(--border-light);
+          padding: 12px 20px;
+          border-radius: 12px;
+          cursor: pointer;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          font-weight: 600;
+          font-size: 14px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+        
+        .view-btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+          border-color: var(--primary-gradient);
+        }
+        
+        .view-btn.active {
+          background: var(--primary-gradient);
+          color: white;
+          box-shadow: 0 4px 16px rgba(255, 107, 0, 0.3);
+          border-color: transparent;
+        }
+        
+        /* Enhanced Event Items */
+        .event-item {
+          background: var(--surface-primary);
+          border: 1px solid var(--border-light);
+          border-radius: 14px;
+          padding: 20px;
+          margin-bottom: 12px;
+          cursor: pointer;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .event-item::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 4px;
+          height: 100%;
+          background: var(--primary-gradient);
+          transform: scaleY(0);
+          transform-origin: bottom;
+          transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .event-item:hover::before {
+          transform: scaleY(1);
+        }
+        
+        .event-item:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+          border-color: rgba(255, 107, 0, 0.3);
+        }
+        
+        .event-title {
+          font-weight: 600;
+          color: var(--text-primary);
+          margin-bottom: 8px;
+          font-size: 16px;
+        }
+        
+        .event-time {
+          color: var(--text-muted);
+          font-size: 13px;
+          margin-bottom: 6px;
+          font-weight: 500;
+        }
+        
+        .event-attendees {
+          color: var(--text-secondary);
+          font-size: 14px;
+          margin-bottom: 8px;
+        }
+        
+        /* Enhanced Authentication Section */
+        .auth-prompt {
+          text-align: center;
+          padding: 80px 40px;
+          background: var(--glass-bg);
+          backdrop-filter: blur(20px);
+          border: 1px solid var(--glass-border);
+          border-radius: 20px;
+          box-shadow: var(--shadow-soft);
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .auth-prompt::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: linear-gradient(135deg, 
+            rgba(255, 255, 255, 0.1) 0%, 
+            rgba(255, 255, 255, 0.05) 100%);
+          pointer-events: none;
+          border-radius: 20px;
+        }
+        
+        .auth-prompt h3 {
+          font-size: 32px;
+          margin-bottom: 16px;
+          color: var(--text-primary);
+          font-weight: 700;
+          position: relative;
+        }
+        
+        .auth-prompt p {
+          font-size: 16px;
+          margin-bottom: 32px;
+          color: var(--text-muted);
+          position: relative;
+        }
+        
+        /* Enhanced Calendar Grid */
+        .calendar-grid {
+          background: var(--glass-bg);
+          backdrop-filter: blur(20px);
+          border: 1px solid var(--glass-border);
+          border-radius: 20px;
+          padding: 24px;
+          box-shadow: var(--shadow-soft);
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .calendar-grid::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: linear-gradient(135deg, 
+            rgba(255, 255, 255, 0.08) 0%, 
+            rgba(255, 255, 255, 0.03) 100%);
+          pointer-events: none;
+          border-radius: 20px;
+        }
+        
+        /* Enhanced Tag Badges */
+        .tag-badge {
+          background: var(--primary-gradient);
+          color: white;
+          padding: 6px 14px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 600;
+          box-shadow: 0 2px 8px rgba(255, 107, 0, 0.3);
+          display: inline-block;
+          margin-right: 8px;
+          margin-bottom: 4px;
+        }
+        
+        /* Enhanced Status Messages */
+        .status {
+          padding: 20px 24px;
+          border-radius: 16px;
+          margin-bottom: 24px;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          font-weight: 500;
+          position: relative;
+          overflow: hidden;
+          backdrop-filter: blur(10px);
+        }
+        
+        .status::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 4px;
+          height: 100%;
+          background: currentColor;
+        }
+        
+        .status.success {
+          background: linear-gradient(135deg, 
+            rgba(72, 187, 120, 0.15) 0%, 
+            rgba(72, 187, 120, 0.08) 100%);
+          color: #22543d;
+          border: 1px solid rgba(72, 187, 120, 0.3);
+        }
+        
+        .status.error {
+          background: linear-gradient(135deg, 
+            rgba(245, 101, 101, 0.15) 0%, 
+            rgba(245, 101, 101, 0.08) 100%);
+          color: #742a2a;
+          border: 1px solid rgba(245, 101, 101, 0.3);
+        }
+        
+        .status.loading {
+          background: linear-gradient(135deg, 
+            rgba(66, 153, 225, 0.15) 0%, 
+            rgba(66, 153, 225, 0.08) 100%);
+          color: #2c5282;
+          border: 1px solid rgba(66, 153, 225, 0.3);
+        }
+        
+        /* Enhanced Modal Components */
+        .modal {
+          display: none;
+          position: fixed;
+          z-index: 2000;
+          left: 0;
+          top: 0;
+          width: 100%;
+          height: 100%;
+          background: rgba(0, 0, 0, 0.7);
+          backdrop-filter: blur(12px);
+          animation: fadeIn 0.3s ease-out;
+        }
+        
+        .modal-content {
+          background: var(--surface-primary);
+          margin: 40px auto;
+          border-radius: 24px;
+          width: 90%;
+          max-width: 700px;
+          max-height: 90vh;
+          overflow-y: auto;
+          box-shadow: var(--shadow-hard);
+          position: relative;
+          animation: slideIn 0.3s ease-out;
+        }
+        
+        .modal-header {
+          padding: 32px 40px 24px;
+          border-bottom: 1px solid var(--border-light);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: var(--glass-bg);
+          backdrop-filter: blur(20px);
+          border-radius: 24px 24px 0 0;
+        }
+        
+        .modal-title {
+          margin: 0;
+          color: var(--text-primary);
+          font-size: 26px;
+          font-weight: 700;
+          letter-spacing: -0.5px;
+        }
+        
+        .close-btn {
+          background: none;
+          border: none;
+          font-size: 32px;
+          cursor: pointer;
+          color: var(--text-muted);
+          padding: 8px;
+          border-radius: 12px;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          width: 48px;
+          height: 48px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        
+        .close-btn:hover {
+          color: var(--text-primary);
+          background: var(--surface-elevated);
+          transform: scale(1.1);
+        }
+        
+        .modal-body {
+          padding: 32px 40px;
+        }
+        
+        .form-group {
+          margin-bottom: 28px;
+        }
+        
+        .form-label {
+          display: block;
+          margin-bottom: 8px;
+          font-weight: 600;
+          color: var(--text-primary);
+          font-size: 15px;
+        }
+        
+        .form-input,
+        .form-textarea {
+          width: 100%;
+          padding: 16px 20px;
+          border: 1px solid var(--border-light);
+          border-radius: 14px;
+          font-size: 15px;
+          background: var(--surface-primary);
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+          font-family: inherit;
+        }
+        
+        .form-input:focus,
+        .form-textarea:focus {
+          outline: none;
+          border-color: #FF6B00;
+          box-shadow: 0 0 0 4px rgba(255, 107, 0, 0.12),
+                      0 8px 20px rgba(255, 107, 0, 0.2);
+          transform: translateY(-2px);
+        }
+        
+        .form-textarea {
+          resize: vertical;
+          min-height: 120px;
+        }
+        
+        .form-row {
+          display: flex;
+          gap: 20px;
+        }
+        
+        .form-row .form-group {
+          flex: 1;
+        }
+        
+        .form-checkbox {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+        
+        .form-checkbox input {
+          width: 20px;
+          height: 20px;
+          cursor: pointer;
+        }
+        
+        .form-checkbox label {
+          cursor: pointer;
+          margin-bottom: 0;
+          font-weight: 500;
+        }
+        
+        .modal-footer {
+          padding: 24px 40px 32px;
+          border-top: 1px solid var(--border-light);
+          display: flex;
+          justify-content: flex-end;
+          gap: 16px;
+          background: var(--surface-secondary);
+          border-radius: 0 0 24px 24px;
+        }
+        
+        /* Enhanced Attendee Components */
+        .attendee-list {
+          max-height: 300px;
+          overflow-y: auto;
+          border: 1px solid var(--border-light);
+          border-radius: 14px;
+          padding: 16px;
+          background: var(--surface-secondary);
+        }
+        
+        .attendee-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 16px 20px;
+          border-bottom: 1px solid var(--border-light);
+          border-radius: 12px;
+          margin-bottom: 8px;
+          background: var(--surface-primary);
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .attendee-item:last-child {
+          border-bottom: none;
+          margin-bottom: 0;
+        }
+        
+        .attendee-item:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        }
+        
+        .attendee-email {
+          font-weight: 600;
+          color: var(--text-primary);
+          font-size: 15px;
+        }
+        
+        .attendee-actions {
+          display: flex;
+          gap: 12px;
+        }
+        
+        .add-attendee-form {
+          display: flex;
+          gap: 12px;
+          margin-top: 16px;
+        }
+        
+        .add-attendee-form input {
+          flex: 1;
+          padding: 12px 16px;
+          border: 1px solid var(--border-light);
+          border-radius: 10px;
+          font-size: 14px;
+          background: var(--surface-primary);
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .add-attendee-form input:focus {
+          outline: none;
+          border-color: #FF6B00;
+          box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.1);
+        }
+        
+        .add-attendee-form button {
+          padding: 12px 20px;
+          background: var(--primary-gradient);
+          color: white;
+          border: none;
+          border-radius: 10px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 600;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 8px rgba(255, 107, 0, 0.3);
+        }
+        
+        .add-attendee-form button:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 16px rgba(255, 107, 0, 0.4);
+        }
+        
+        /* Enhanced Tag Components */
+        .tag-section {
+          margin-top: 16px;
+          padding: 20px;
+          background: var(--surface-secondary);
+          border-radius: 16px;
+          border: 1px solid var(--border-light);
+        }
+        
+        .tag-section h4 {
+          margin: 0 0 16px 0;
+          color: var(--text-primary);
+          font-size: 16px;
+          font-weight: 600;
+        }
+        
+        .tag-options {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+        
+        .tag-option {
+          background: var(--surface-primary);
+          border: 1px solid var(--border-light);
+          padding: 10px 16px;
+          border-radius: 12px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 500;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+        
+        .tag-option:hover {
+          border-color: #FF6B00;
+          background: rgba(255, 107, 0, 0.1);
+          transform: translateY(-2px);
+        }
+        
+        .tag-option.selected {
+          background: var(--primary-gradient);
+          color: white;
+          border-color: #FF6B00;
+          box-shadow: 0 4px 16px rgba(255, 107, 0, 0.3);
+        }
+        
+        /* Animation keyframes */
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        
+        @keyframes slideIn {
+          from { 
+            transform: translateY(30px);
+            opacity: 0;
+          }
+          to { 
+            transform: translateY(0);
+            opacity: 1;
+          }
+        }
+        
       </style>
     </head>
     <body>
@@ -2161,35 +2777,32 @@ app.get('/', (req, res) => {
               <div id="status"></div>
               
               <!-- Contacts Filter Section -->
-              <div class="contacts-filter-section" style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                  <h3 style="margin: 0; color: #2d3748;">Filtros de Contactos</h3>
-                  <button class="btn btn-outline" onclick="clearContactFilters()" style="padding: 5px 10px; font-size: 12px;">
+              <div class="contacts-filter-section">
+                <div class="filter-header">
+                  <h3 class="filter-title">Filtros de Contactos</h3>
+                  <button class="btn btn-outline btn-sm" onclick="clearContactFilters()">
                     Limpiar Filtros
                   </button>
                 </div>
                 
-                <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 15px;">
+                <div class="filter-controls">
                   <input type="text" id="contactSearchInput" placeholder="Buscar por nombre o email..." 
-                         style="flex: 1; min-width: 200px; padding: 8px; border: 1px solid #cbd5e0; border-radius: 4px;" 
-                         onkeyup="filterContacts()" />
+                         class="filter-input" onkeyup="filterContacts()" />
                   
-                  <select id="contactTagFilter" style="padding: 8px; border: 1px solid #cbd5e0; border-radius: 4px;" 
-                          onchange="filterContacts()">
+                  <select id="contactTagFilter" class="filter-select" onchange="filterContacts()">
                     <option value="">Todas las etiquetas</option>
                     <option value="New Lead">● New Lead</option>
                     <option value="Untagged">○ Sin etiquetas</option>
                   </select>
                   
-                  <select id="contactSortFilter" style="padding: 8px; border: 1px solid #cbd5e0; border-radius: 4px;" 
-                          onchange="filterContacts()">
+                  <select id="contactSortFilter" class="filter-select" onchange="filterContacts()">
                     <option value="recent">Más recientes</option>
                     <option value="name">Por nombre</option>
                     <option value="meetings">Por reuniones</option>
                   </select>
                 </div>
                 
-                <div id="contactFiltersActive" style="display: none; color: #4a5568; font-size: 14px;">
+                <div id="contactFiltersActive" class="active-filters" style="display: none;">
                   <span>Filtros activos: </span>
                   <span id="activeFiltersText"></span>
                 </div>
