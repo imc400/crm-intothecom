@@ -2441,7 +2441,7 @@ app.get('/', (req, res) => {
                   (!isIntothecomEmail ? '<span class="domain-badge">Externo</span>' : '<span class="domain-badge" style="background: #38a169;">IntoTheCom</span>') +
                   (!isIntothecomEmail ? '<div class="tags-container">' +
                     '<div class="tag-selector">' +
-                      '<div class="tag-dropdown" onclick="toggleTagDropdown(&quot;' + email + '&quot;)">' +
+                      '<div class="tag-dropdown" onclick="toggleTagDropdown(\'' + email.replace(/'/g, '&#39;') + '\')">' +
                         'Agregar etiqueta ▼' +
                       '</div>' +
                       '<div class="tag-dropdown-content" id="dropdown-' + email.replace(/[^a-zA-Z0-9]/g, '') + '">' +
@@ -3156,7 +3156,7 @@ app.get('/', (req, res) => {
                 '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
                 '<div class="event-actions">' +
                   (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn">Unirse</a>' : '') +
-                  '<button class="event-details-btn" onclick="showEventDetails(&quot;' + event.id + '&quot;)">Detalles</button>' +
+                  '<button class="event-details-btn" onclick="showEventDetails(\'' + event.id + '\')">' + 'Detalles</button>' +
                 '</div>' +
               '</div>'
             ).join('');
@@ -3219,7 +3219,7 @@ app.get('/', (req, res) => {
               });
               
               dayEvents.forEach(event => {
-                html += '<div class="event-block" onclick="showEventDetails(&quot;' + event.id + '&quot;)">';
+                html += '<div class="event-block" onclick="showEventDetails(\'' + event.id + '\')">';
                 html += (event.summary || 'Sin título').substring(0, 20);
                 if (event.hangoutLink) {
                   html += '<br><a href="' + event.hangoutLink + '" target="_blank" style="color: white; text-decoration: underline;">Unirse</a>';
@@ -3271,7 +3271,7 @@ app.get('/', (req, res) => {
             const dayClass = isCurrentMonth ? 'month-day' : 'month-day other-month';
             
             html += '<div class="' + dayClass + '">';
-            html += '<div class="month-day-number" onclick="selectDayFromMonth(&quot;' + getLocalDateString(date) + '&quot;)">' + date.getDate() + '</div>';
+            html += '<div class="month-day-number" onclick="selectDayFromMonth(\'' + getLocalDateString(date) + '\')">' + date.getDate() + '</div>';
             
             // Find events for this day
             const dayEvents = events.filter(event => {
@@ -3284,7 +3284,7 @@ app.get('/', (req, res) => {
             }
             
             dayEvents.forEach(event => {
-              html += '<div class="month-event" onclick="showEventDetails(&quot;' + event.id + '&quot;)">';
+              html += '<div class="month-event" onclick="showEventDetails(\'' + event.id + '\')">';
               html += (event.summary || 'Sin título').substring(0, 15);
               html += '</div>';
             });
