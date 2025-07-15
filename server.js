@@ -2063,8 +2063,8 @@ app.get('/', (req, res) => {
               return 'this';
             }
             if (typeof arg === 'string') {
-              // Double escape for HTML attribute context
-              const escaped = arg.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+              // Simple and safe escape - only escape essential characters
+              const escaped = arg.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
               return "'" + escaped + "'";
             }
             return String(arg);
@@ -2115,9 +2115,11 @@ app.get('/', (req, res) => {
         // Listen for authentication success message
         window.addEventListener('message', (event) => {
           if (event.data && event.data.type === 'google-auth-success') {
-            console.log('Auth success received');
-            // Reload page to ensure clean state
-            window.location.reload();
+            console.log('Auth success received - reloading page');
+            // Small delay to ensure the auth process is complete
+            setTimeout(() => {
+              window.location.reload();
+            }, 500);
           }
         });
 
