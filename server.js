@@ -4223,18 +4223,27 @@ app.get('/', (req, res) => {
               const tagsResult = await tagsResponse.json();
               if (tagsResult.success) {
                 availableTags = tagsResult.data;
+                // Update tag colors cache with database colors
+                tagColorsCache = {};
+                tagsResult.data.forEach(tagInfo => {
+                  if (tagInfo.tag && tagInfo.color) {
+                    tagColorsCache[tagInfo.tag] = tagInfo.color;
+                  }
+                });
               } else {
                 // Fallback to predefined tags
                 availableTags = [
-                  { tag: 'New Lead', count: 0 }
+                  { tag: 'New Lead', count: 0, color: '#FF6B00' }
                 ];
+                tagColorsCache = { 'New Lead': '#FF6B00' };
               }
             } catch (tagError) {
               console.error('Error loading tags, using fallback:', tagError);
               // Fallback to predefined tags
               availableTags = [
-                { tag: 'New Lead', count: 0 }
+                { tag: 'New Lead', count: 0, color: '#FF6B00' }
               ];
+              tagColorsCache = { 'New Lead': '#FF6B00' };
             }
             
             // Load all contacts to get their current tags
@@ -4264,9 +4273,9 @@ app.get('/', (req, res) => {
           if (!tags || tags.length === 0) return '';
           
           return tags.map(tag => {
-            const tagClass = tag.toLowerCase().replace(/\s+/g, '-');
+            const tagColor = getTagColor(tag);
             const escapedTag = tag.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
-            return '<span class="tag-badge ' + tagClass + '">' + tag + 
+            return '<span class="tag-badge" style="background: ' + tagColor + '; color: white; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-right: 8px; display: inline-block;">' + tag + 
                    '<span class="tag-remove" ' + safeOnclick('removeTag', tag, 'this') + '>×</span></span>';
           }).join('');
         }
@@ -5476,6 +5485,41 @@ app.get('/', (req, res) => {
           return tagIcons[tag] || '■';
         }
 
+        // Storage for dynamic tag colors
+        let tagColorsCache = {};
+        
+        // Function to get tag color from cache or database
+        function getTagColor(tagName) {
+          if (tagColorsCache[tagName]) {
+            return tagColorsCache[tagName];
+          }
+          
+          // Default colors for special tags
+          const defaultColors = {
+            'New Lead': '#FF6B00',
+            'Untagged': '#718096'
+          };
+          
+          if (defaultColors[tagName]) {
+            tagColorsCache[tagName] = defaultColors[tagName];
+            return defaultColors[tagName];
+          }
+          
+          // Try to get from availableTags (from database)
+          if (availableTags && Array.isArray(availableTags)) {
+            const tagInfo = availableTags.find(t => t.tag === tagName);
+            if (tagInfo && tagInfo.color) {
+              tagColorsCache[tagName] = tagInfo.color;
+              return tagInfo.color;
+            }
+          }
+          
+          // Fallback color
+          const fallbackColor = '#718096';
+          tagColorsCache[tagName] = fallbackColor;
+          return fallbackColor;
+        }
+        
         // Render filtered contacts
         function renderFilteredContacts(contacts) {
           const contactsList = document.getElementById('contactsList');
@@ -5511,16 +5555,19 @@ app.get('/', (req, res) => {
                 'Untagged': '○'
               };
               
-              const tagColors = {
-                'New Lead': '#FF6B00',
-                'Untagged': '#718096'
-              };
-              
               const icon = tagIcons[tag] || '🏷️';
-              const color = tagColors[tag] || '#718096';
+              const color = getTagColor(tag);
               
-              html += '<div style="margin-bottom: 25px;">';
-              html += '<h3 style="color: ' + color + '; margin-bottom: 15px; font-size: 18px;">' + icon + ' ' + tag + ' (' + tagContacts.length + ')</h3>';
+              // Create collapsible section
+              const sectionId = 'section-' + tag.toLowerCase().replace(/\s+/g, '-');
+              
+              html += '<div class="contact-section" style="margin-bottom: 25px;">';
+              html += '<h3 class="section-header" style="color: ' + color + '; margin-bottom: 15px; font-size: 18px; cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; padding: 10px 15px; background: rgba(255, 255, 255, 0.05); border-radius: 8px; transition: all 0.3s ease; border: 1px solid rgba(255, 255, 255, 0.1);" onclick="toggleSection(\'' + sectionId + '\')">' + 
+                     '<span><span class="section-icon" id="icon-' + sectionId + '">▼</span> ' + icon + ' ' + tag + ' (' + tagContacts.length + ')</span>' +
+                     '<span style="font-size: 14px; opacity: 0.7;">Click para expandir/contraer</span>' +
+                     '</h3>';
+              
+              html += '<div class="section-content" id="' + sectionId + '" style="display: block; padding-left: 15px;">';
               
               html += tagContacts.map(contact => {
                 const borderColor = tag === 'Untagged' ? '#e2e8f0' : color;
@@ -5529,18 +5576,35 @@ app.get('/', (req, res) => {
                   '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + (contact.meeting_count || 0) + ' reuniones</div>' +
                   (contact.tags && contact.tags.length > 0 ? 
                     '<div class="contact-tags" style="margin-top: 8px;">' + 
-                      contact.tags.map(t => '<span class="tag-badge ' + t.toLowerCase().replace(/\s+/g, '-') + '">' + t + '</span>').join('') +
+                      contact.tags.map(t => {
+                        const tagColor = getTagColor(t);
+                        return '<span class="tag-badge" style="background: ' + tagColor + '; color: white; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-right: 8px; display: inline-block;">' + t + '</span>';
+                      }).join('') +
                     '</div>' : '') +
                   (contact.notes ? '<div style="margin-top: 8px; color: #718096; font-size: 14px;">' + contact.notes.substring(0, 100) + (contact.notes.length > 100 ? '...' : '') + '</div>' : '') +
                   '<div style="margin-top: 8px; color: #718096; font-size: 12px;">Click para ver detalles</div>' +
                 '</div>';
               }).join('');
               
-              html += '</div>';
+              html += '</div></div>';
             }
           });
           
           contactsList.innerHTML = html;
+        }
+        
+        // Function to toggle section visibility
+        function toggleSection(sectionId) {
+          const section = document.getElementById(sectionId);
+          const icon = document.getElementById('icon-' + sectionId);
+          
+          if (section.style.display === 'none') {
+            section.style.display = 'block';
+            icon.textContent = '▼';
+          } else {
+            section.style.display = 'none';
+            icon.textContent = '▶';
+          }
         }
 
         // Clear all contact filters
