@@ -1198,28 +1198,28 @@ app.get('/api/auth/google/callback', async (req, res) => {
     
     console.log('Google Calendar authentication successful');
     
-    res.send(`
-      <html>
-        <body>
-          <h2>✅ Authentication Successful!</h2>
-          <p>You can now close this window and return to your CRM.</p>
-          <script>
-            console.log('Callback page loaded');
-            // Notify parent window and close
-            if (window.opener) {
-              console.log('Found opener window, sending message');
-              window.opener.postMessage({type: 'google-auth-success'}, '*');
-              console.log('Message sent, closing window');
-              setTimeout(() => {
-                window.close();
-              }, 2000);
-            } else {
-              console.log('No opener window found');
-            }
-          </script>
-        </body>
-      </html>
-    `);
+    res.send(
+      '<html>' +
+        '<head><title>Authentication Successful</title></head>' +
+        '<body>' +
+          '<h2>✅ Authentication Successful!</h2>' +
+          '<p>You can now close this window and return to your CRM.</p>' +
+          '<script>' +
+            'console.log("Callback page loaded");' +
+            'if (window.opener) {' +
+              'console.log("Found opener window, sending message");' +
+              'window.opener.postMessage({type: "google-auth-success"}, "*");' +
+              'console.log("Message sent, closing window");' +
+              'setTimeout(function() {' +
+                'window.close();' +
+              '}, 2000);' +
+            '} else {' +
+              'console.log("No opener window found");' +
+            '}' +
+          '</script>' +
+        '</body>' +
+      '</html>'
+    );
   } catch (error) {
     console.error('Google auth error:', error);
     res.status(500).json({
@@ -3927,18 +3927,14 @@ app.get('/', (req, res) => {
         // authenticateGoogle already defined in head
 
         // Listen for authentication success message
-        window.addEventListener('message', (event) => {
+        window.addEventListener('message', function(event) {
           console.log('Message received:', event.data);
           if (event.data && event.data.type === 'google-auth-success') {
-            console.log('Auth success received - checking status and reloading');
-            // Longer delay to ensure auth process is complete server-side
-            setTimeout(() => {
-              checkAuthStatus();
-              // Additional delay before reload if needed
-              setTimeout(() => {
-                window.location.reload();
-              }, 1000);
-            }, 1500);
+            console.log('Auth success received - reloading page');
+            // Simply reload the page after a short delay
+            setTimeout(function() {
+              window.location.reload();
+            }, 2000);
           }
         });
 
