@@ -1578,6 +1578,26 @@ app.get('/', (req, res) => {
           min-height: 60px;
           position: relative;
           border-right: 1px solid #e2e8f0;
+          transition: all 0.3s ease;
+        }
+        
+        .day-column.current-day-column {
+          background: linear-gradient(135deg, 
+            rgba(255, 107, 0, 0.02) 0%, 
+            rgba(255, 133, 51, 0.01) 100%);
+          border-right: 2px solid rgba(255, 107, 0, 0.3);
+          position: relative;
+        }
+        
+        .day-column.current-day-column::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: 3px;
+          background: linear-gradient(180deg, #FF6B00, #FF8533);
+          z-index: 1;
         }
         
         .day-header {
@@ -1587,6 +1607,28 @@ app.get('/', (req, res) => {
           text-align: center;
           border-bottom: 1px solid #e2e8f0;
           font-size: 14px;
+          transition: all 0.3s ease;
+        }
+        
+        .day-header.current-day {
+          background: linear-gradient(135deg, #FF6B00 0%, #FF8533 100%);
+          color: white;
+          font-weight: 700;
+          position: relative;
+          box-shadow: 0 4px 12px rgba(255, 107, 0, 0.3);
+        }
+        
+        .day-header.current-day::after {
+          content: '';
+          position: absolute;
+          bottom: -2px;
+          left: 50%;
+          transform: translateX(-50%);
+          width: 0;
+          height: 0;
+          border-left: 6px solid transparent;
+          border-right: 6px solid transparent;
+          border-top: 6px solid #FF6B00;
         }
         
         .event-block {
@@ -3268,6 +3310,66 @@ app.get('/', (req, res) => {
 
         let currentEventId = null;
         let currentEventData = null;
+        let currentTimeLineInterval = null;
+
+        // Function to update the current time line in week view
+        function updateCurrentTimeLine() {
+          const weekBody = document.getElementById('week-body');
+          if (!weekBody) return;
+          
+          const now = new Date();
+          const currentHour = now.getHours();
+          const currentMinutes = now.getMinutes();
+          const currentDay = now.getDay();
+          
+          // Remove existing time line
+          const existingLine = document.querySelector('.current-time-line');
+          if (existingLine) {
+            existingLine.remove();
+          }
+          
+          // Find the current day column for the current hour
+          const targetColumn = weekBody.querySelector(`[data-day="${currentDay}"][data-hour="${currentHour}"]`);
+          if (!targetColumn) return;
+          
+          // Calculate position within the hour (0-60 minutes = 0-100% of hour slot)
+          const minutePercentage = (currentMinutes / 60) * 100;
+          
+          // Create time line element
+          const timeLine = document.createElement('div');
+          timeLine.className = 'current-time-line';
+          timeLine.style.position = 'absolute';
+          timeLine.style.top = minutePercentage + '%';
+          timeLine.style.left = '0';
+          timeLine.style.right = '0';
+          timeLine.style.height = '2px';
+          timeLine.style.background = 'linear-gradient(90deg, #FF6B00, #FF8533)';
+          timeLine.style.zIndex = '1000';
+          timeLine.style.boxShadow = '0 0 8px rgba(255, 107, 0, 0.6)';
+          
+          // Add a circle at the start of the line
+          const circle = document.createElement('div');
+          circle.style.position = 'absolute';
+          circle.style.left = '-6px';
+          circle.style.top = '-4px';
+          circle.style.width = '10px';
+          circle.style.height = '10px';
+          circle.style.borderRadius = '50%';
+          circle.style.background = '#FF6B00';
+          circle.style.border = '2px solid white';
+          circle.style.boxShadow = '0 0 8px rgba(255, 107, 0, 0.6)';
+          
+          timeLine.appendChild(circle);
+          targetColumn.appendChild(timeLine);
+          
+          // Auto-scroll to current time if it's the first time
+          if (!document.querySelector('.current-time-line-scrolled')) {
+            setTimeout(() => {
+              targetColumn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              document.body.classList.add('current-time-line-scrolled');
+            }, 200);
+          }
+        }
 
         async function showEventDetails(eventId) {
           try {
@@ -4167,6 +4269,11 @@ app.get('/', (req, res) => {
           startOfWeek.setHours(0, 0, 0, 0);
           const endOfWeek = new Date(startOfWeek.getTime() + (7 * 24 * 60 * 60 * 1000));
           
+          // Get current day info for highlighting
+          const today = new Date();
+          const todayDay = today.getDay();
+          const isCurrentWeek = today >= startOfWeek && today < endOfWeek;
+          
           // Filter events for selected week only
           const weekEvents = events.filter(event => {
             const eventDate = new Date(event.start.dateTime || event.start.date);
@@ -4193,24 +4300,30 @@ app.get('/', (req, res) => {
           // Fixed header with days
           html += '<div class="week-header">';
           html += '<div class="time-slot"></div>';
-          weekDays.forEach(day => {
-            html += '<div class="day-header">' + day + '</div>';
+          weekDays.forEach((day, index) => {
+            const isToday = isCurrentWeek && index === todayDay;
+            const dayClass = isToday ? 'day-header current-day' : 'day-header';
+            html += '<div class="' + dayClass + '">' + day + '</div>';
           });
           html += '</div>';
           
           // Scrollable body with time slots and events
-          html += '<div class="week-body">';
-          timeSlots.forEach(time => {
+          html += '<div class="week-body" id="week-body">';
+          timeSlots.forEach((time, timeIndex) => {
+            const currentHour = parseInt(time);
             html += '<div class="time-slot">' + time + '</div>';
+            
             for (let day = 0; day < 7; day++) {
-              html += '<div class="day-column">';
+              const isToday = isCurrentWeek && day === todayDay;
+              const dayColumnClass = isToday ? 'day-column current-day-column' : 'day-column';
+              html += '<div class="' + dayColumnClass + '" data-day="' + day + '" data-hour="' + currentHour + '">';
               
               // Find events for this day and time
               const dayEvents = weekEvents.filter(event => {
                 const eventDate = new Date(event.start.dateTime || event.start.date);
                 const eventHour = eventDate.getHours();
                 const eventDay = eventDate.getDay();
-                return eventDay === day && eventHour === parseInt(time);
+                return eventDay === day && eventHour === currentHour;
               });
               
               dayEvents.forEach(event => {
@@ -4228,6 +4341,26 @@ app.get('/', (req, res) => {
           html += '</div>';
           
           html += '</div>';
+          
+          // Add current time line if viewing current week
+          if (isCurrentWeek) {
+            setTimeout(() => {
+              updateCurrentTimeLine();
+              // Clear any existing interval
+              if (currentTimeLineInterval) {
+                clearInterval(currentTimeLineInterval);
+              }
+              // Update time line every minute
+              currentTimeLineInterval = setInterval(updateCurrentTimeLine, 60000);
+            }, 100);
+          } else {
+            // Clear interval if not viewing current week
+            if (currentTimeLineInterval) {
+              clearInterval(currentTimeLineInterval);
+              currentTimeLineInterval = null;
+            }
+          }
+          
           return html;
         }
 
