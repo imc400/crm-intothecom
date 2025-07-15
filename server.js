@@ -2373,7 +2373,7 @@ app.get('/', (req, res) => {
           }
         }
 
-        let availableTags = [];
+        let availableTags = [{ tag: 'New Lead', count: 0 }];
         let contactsData = {};
 
         async function populateEventModal(event) {
@@ -2418,14 +2418,15 @@ app.get('/', (req, res) => {
             }
           });
           
-          // Load available tags and contacts data
+          // Load available tags and contacts data FIRST
           await loadTagsAndContacts();
           
-          // Populate attendees
+          // Populate attendees AFTER tags are loaded
           const attendeesList = document.getElementById('attendeesList');
           attendeesList.innerHTML = '';
           
           console.log('Event attendees:', event.attendees);
+          console.log('Available tags loaded:', availableTags);
           
           if (event.attendees && event.attendees.length > 0) {
             for (const attendee of event.attendees) {
@@ -2537,12 +2538,17 @@ app.get('/', (req, res) => {
         }
 
         function renderTagOptions(email, currentTags) {
-          if (!availableTags || !Array.isArray(availableTags)) {
-            console.warn('availableTags is not available, using fallback');
-            return '<div class="tag-option-error">Tags no disponibles</div>';
+          if (!availableTags || !Array.isArray(availableTags) || availableTags.length === 0) {
+            console.warn('availableTags is not available or empty, using fallback');
+            return '<div class="tag-option-error">Cargando etiquetas...</div>';
           }
           
           return availableTags.map(tagInfo => {
+            if (!tagInfo || !tagInfo.tag) {
+              console.warn('Invalid tag info:', tagInfo);
+              return '';
+            }
+            
             const tag = tagInfo.tag;
             const isSelected = currentTags.includes(tag);
             const escapedEmail = email.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
