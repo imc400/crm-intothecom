@@ -5155,6 +5155,35 @@ app.get('/', (req, res) => {
             const modal = document.getElementById('contactModal');
             modal.style.display = 'block';
             
+            // Load available tags first to ensure colors are available
+            try {
+              const tagsResponse = await fetch('/api/tags');
+              const tagsResult = await tagsResponse.json();
+              if (tagsResult.success) {
+                availableTags = tagsResult.data;
+                // Update tag colors cache with database colors
+                tagColorsCache = {};
+                tagsResult.data.forEach(tagInfo => {
+                  if (tagInfo.tag && tagInfo.color) {
+                    tagColorsCache[tagInfo.tag] = tagInfo.color;
+                  }
+                });
+              } else {
+                // Fallback to predefined tags
+                availableTags = [
+                  { tag: 'New Lead', count: 0, color: '#FF6B00' }
+                ];
+                tagColorsCache = { 'New Lead': '#FF6B00' };
+              }
+            } catch (tagError) {
+              console.error('Error loading tags, using fallback:', tagError);
+              // Fallback to predefined tags
+              availableTags = [
+                { tag: 'New Lead', count: 0, color: '#FF6B00' }
+              ];
+              tagColorsCache = { 'New Lead': '#FF6B00' };
+            }
+            
             // Load contact data
             const response = await fetch('/api/contacts');
             const result = await response.json();
