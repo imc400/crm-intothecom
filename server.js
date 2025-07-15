@@ -3329,7 +3329,7 @@ app.get('/', (req, res) => {
           }
           
           // Find the current day column for the current hour
-          const targetColumn = weekBody.querySelector(`[data-day="${currentDay}"][data-hour="${currentHour}"]`);
+          const targetColumn = weekBody.querySelector('[data-day="' + currentDay + '"][data-hour="' + currentHour + '"]');
           if (!targetColumn) return;
           
           // Calculate position within the hour (0-60 minutes = 0-100% of hour slot)
