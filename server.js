@@ -1090,6 +1090,31 @@ app.get('/', (req, res) => {
         console.log('=== AUTH FUNCTIONS DEFINED ===');
       </script>
       <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+        
+        :root {
+          --primary-gradient: linear-gradient(135deg, #FF6B00 0%, #FF8533 100%);
+          --secondary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          --dark-gradient: linear-gradient(135deg, #0c0c0c 0%, #1a1a1a 100%);
+          --glass-bg: rgba(255, 255, 255, 0.1);
+          --glass-border: rgba(255, 255, 255, 0.2);
+          --shadow-soft: 0 8px 32px rgba(0, 0, 0, 0.1);
+          --shadow-medium: 0 12px 48px rgba(0, 0, 0, 0.15);
+          --shadow-hard: 0 20px 60px rgba(0, 0, 0, 0.2);
+          --text-primary: #1a202c;
+          --text-secondary: #4a5568;
+          --text-muted: #718096;
+          --surface-primary: #ffffff;
+          --surface-secondary: #f8fafc;
+          --surface-elevated: #edf2f7;
+          --border-light: #e2e8f0;
+          --border-medium: #cbd5e0;
+          --success: #48bb78;
+          --warning: #ed8936;
+          --error: #f56565;
+          --info: #4299e1;
+        }
+        
         * {
           margin: 0;
           padding: 0;
@@ -1097,9 +1122,13 @@ app.get('/', (req, res) => {
         }
         
         body {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          background: #f8fafc;
-          color: #2d3748;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-weight: 400;
+          line-height: 1.6;
+          color: var(--text-primary);
+          background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+          min-height: 100vh;
+          overflow-x: hidden;
         }
         
         .app-container {
@@ -1108,28 +1137,57 @@ app.get('/', (req, res) => {
         }
         
         .sidebar {
-          width: 260px;
-          background: #1a1a1a;
-          padding: 20px 0;
+          width: 280px;
+          background: var(--dark-gradient);
           position: fixed;
           height: 100vh;
           left: 0;
           top: 0;
           overflow-y: auto;
+          border-right: 1px solid rgba(255, 255, 255, 0.1);
+          box-shadow: var(--shadow-hard);
+          z-index: 1000;
+          backdrop-filter: blur(20px);
+        }
+        
+        .sidebar::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: linear-gradient(180deg, 
+            rgba(255, 107, 0, 0.1) 0%, 
+            rgba(255, 107, 0, 0.05) 20%, 
+            transparent 100%);
+          pointer-events: none;
         }
         
         .sidebar-header {
-          padding: 0 20px 30px;
-          border-bottom: 1px solid #2d3748;
+          padding: 30px 25px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          position: relative;
         }
         
         .logo {
           color: #fff;
-          font-size: 24px;
-          font-weight: 700;
+          font-size: 28px;
+          font-weight: 800;
           display: flex;
           align-items: center;
-          gap: 10px;
+          gap: 12px;
+          text-decoration: none;
+          letter-spacing: -0.5px;
+        }
+        
+        .logo::before {
+          content: '';
+          width: 12px;
+          height: 12px;
+          background: var(--primary-gradient);
+          border-radius: 50%;
+          box-shadow: 0 0 20px rgba(255, 107, 0, 0.5);
         }
         
         .logo img {
@@ -1138,103 +1196,198 @@ app.get('/', (req, res) => {
         }
         
         .nav-menu {
-          padding: 30px 0;
+          padding: 20px 0;
         }
         
         .nav-item {
           display: flex;
           align-items: center;
-          gap: 12px;
-          padding: 12px 20px;
-          color: #a0aec0;
+          gap: 15px;
+          padding: 16px 25px;
+          color: rgba(255, 255, 255, 0.7);
           text-decoration: none;
-          transition: all 0.2s;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
           border-left: 3px solid transparent;
+          margin: 4px 0;
+          position: relative;
+          cursor: pointer;
+          font-weight: 500;
+        }
+        
+        .nav-item::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 0;
+          width: 0;
+          height: 100%;
+          background: var(--primary-gradient);
+          transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          border-radius: 0 4px 4px 0;
+        }
+        
+        .nav-item:hover::before {
+          width: 4px;
         }
         
         .nav-item:hover {
-          background: #2d3748;
-          color: #fff;
+          color: rgba(255, 255, 255, 0.9);
+          background: rgba(255, 255, 255, 0.08);
+          transform: translateX(4px);
         }
         
         .nav-item.active {
-          background: #2d3748;
           color: #FF6B00;
+          background: rgba(255, 107, 0, 0.15);
           border-left-color: #FF6B00;
+          box-shadow: inset 0 0 0 1px rgba(255, 107, 0, 0.2);
+        }
+        
+        .nav-item.active::before {
+          width: 4px;
         }
         
         .nav-icon {
-          font-size: 18px;
-          width: 20px;
+          font-size: 20px;
+          width: 24px;
           text-align: center;
+          opacity: 0.8;
         }
         
         .main-content {
           flex: 1;
-          margin-left: 260px;
-          padding: 30px;
+          margin-left: 280px;
+          padding: 40px;
+          min-height: 100vh;
         }
         
         .header {
-          background: #fff;
-          padding: 20px 30px;
-          border-radius: 12px;
-          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-          margin-bottom: 30px;
+          background: var(--glass-bg);
+          backdrop-filter: blur(20px);
+          border: 1px solid var(--glass-border);
+          padding: 24px 32px;
+          border-radius: 20px;
+          box-shadow: var(--shadow-soft);
+          margin-bottom: 32px;
           display: flex;
           justify-content: space-between;
           align-items: center;
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .header::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: linear-gradient(135deg, 
+            rgba(255, 255, 255, 0.2) 0%, 
+            rgba(255, 255, 255, 0.1) 100%);
+          pointer-events: none;
         }
         
         .header h1 {
-          font-size: 28px;
-          color: #1a202c;
+          font-size: 32px;
+          font-weight: 700;
+          color: var(--text-primary);
           margin: 0;
+          letter-spacing: -1px;
+          position: relative;
         }
         
         .header-actions {
           display: flex;
-          gap: 15px;
+          gap: 16px;
+          position: relative;
         }
         
         .btn {
-          padding: 10px 20px;
+          background: var(--primary-gradient);
+          color: white;
           border: none;
-          border-radius: 8px;
+          padding: 14px 28px;
+          border-radius: 12px;
           cursor: pointer;
-          font-weight: 500;
-          transition: all 0.2s;
+          font-size: 14px;
+          font-weight: 600;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
           text-decoration: none;
           display: inline-flex;
           align-items: center;
           gap: 8px;
+          position: relative;
+          overflow: hidden;
+          box-shadow: 0 4px 16px rgba(255, 107, 0, 0.3);
+        }
+        
+        .btn::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, 
+            transparent, 
+            rgba(255, 255, 255, 0.3), 
+            transparent);
+          transition: left 0.5s;
+        }
+        
+        .btn:hover::before {
+          left: 100%;
+        }
+        
+        .btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 24px rgba(255, 107, 0, 0.4);
+        }
+        
+        .btn:active {
+          transform: translateY(0);
         }
         
         .btn-primary {
-          background: #FF6B00;
-          color: white;
+          background: var(--primary-gradient);
+          box-shadow: 0 4px 16px rgba(255, 107, 0, 0.3);
         }
         
         .btn-primary:hover {
-          background: #E55A00;
+          box-shadow: 0 8px 24px rgba(255, 107, 0, 0.4);
+        }
+        
+        .btn-outline {
+          background: transparent;
+          color: #FF6B00;
+          border: 2px solid #FF6B00;
+          box-shadow: 0 4px 16px rgba(255, 107, 0, 0.15);
+        }
+        
+        .btn-outline:hover {
+          background: var(--primary-gradient);
+          color: white;
+          box-shadow: 0 8px 24px rgba(255, 107, 0, 0.3);
         }
         
         .btn-secondary {
-          background: #e2e8f0;
-          color: #4a5568;
+          background: var(--secondary-gradient);
+          box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
         }
         
         .btn-secondary:hover {
-          background: #cbd5e0;
+          box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
         }
         
         .btn-success {
-          background: #48bb78;
-          color: white;
+          background: linear-gradient(135deg, var(--success) 0%, #38a169 100%);
+          box-shadow: 0 4px 16px rgba(72, 187, 120, 0.3);
         }
         
         .btn-success:hover {
-          background: #38a169;
+          box-shadow: 0 8px 24px rgba(72, 187, 120, 0.4);
         }
         
         .connection-status {
@@ -1260,7 +1413,28 @@ app.get('/', (req, res) => {
         }
         
         .tab-content {
-          padding: 30px;
+          background: var(--glass-bg);
+          backdrop-filter: blur(20px);
+          border: 1px solid var(--glass-border);
+          border-radius: 24px;
+          padding: 40px;
+          box-shadow: var(--shadow-medium);
+          min-height: 600px;
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .tab-content::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: linear-gradient(135deg, 
+            rgba(255, 255, 255, 0.1) 0%, 
+            rgba(255, 255, 255, 0.05) 100%);
+          pointer-events: none;
         }
         
         .calendar-container {
@@ -1925,12 +2099,15 @@ app.get('/', (req, res) => {
           </div>
           <nav class="nav-menu">
             <a href="#" class="nav-item active" data-tab="calendar">
+              <span class="nav-icon">◉</span>
               <span>Calendario</span>
             </a>
             <a href="#" class="nav-item" data-tab="contacts">
+              <span class="nav-icon">◎</span>
               <span>Contactos</span>
             </a>
             <a href="#" class="nav-item" data-tab="sync">
+              <span class="nav-icon">⟲</span>
               <span>Sincronización</span>
             </a>
           </nav>
@@ -2000,8 +2177,8 @@ app.get('/', (req, res) => {
                   <select id="contactTagFilter" style="padding: 8px; border: 1px solid #cbd5e0; border-radius: 4px;" 
                           onchange="filterContacts()">
                     <option value="">Todas las etiquetas</option>
-                    <option value="New Lead">🎯 New Lead</option>
-                    <option value="Untagged">📝 Sin etiquetas</option>
+                    <option value="New Lead">● New Lead</option>
+                    <option value="Untagged">○ Sin etiquetas</option>
                   </select>
                   
                   <select id="contactSortFilter" style="padding: 8px; border: 1px solid #cbd5e0; border-radius: 4px;" 
@@ -2187,6 +2364,11 @@ app.get('/', (req, res) => {
               'sync': 'Sincronización'
             };
             document.getElementById('pageTitle').textContent = titles[tabId];
+            
+            // Auto-load contacts when switching to contacts tab
+            if (tabId === 'contacts') {
+              loadContacts();
+            }
           });
         });
 
@@ -3584,8 +3766,8 @@ app.get('/', (req, res) => {
                   const contacts = contactsByTag[tag];
                   if (contacts.length > 0) {
                     const tagIcons = {
-                      'New Lead': '🎯',
-                      'Untagged': '📝'
+                      'New Lead': '●',
+                      'Untagged': '○'
                     };
                     
                     const tagColors = {
@@ -3677,7 +3859,7 @@ app.get('/', (req, res) => {
               // Add "Untagged" option
               const untaggedOption = document.createElement('option');
               untaggedOption.value = 'Untagged';
-              untaggedOption.textContent = '📝 Sin etiquetas';
+              untaggedOption.textContent = '○ Sin etiquetas';
               tagFilter.appendChild(untaggedOption);
             }
           } catch (error) {
@@ -3767,10 +3949,10 @@ app.get('/', (req, res) => {
         // Get tag icon
         function getTagIcon(tag) {
           const tagIcons = {
-            'New Lead': '🎯',
-            'Untagged': '📝'
+            'New Lead': '●',
+            'Untagged': '○'
           };
-          return tagIcons[tag] || '🏷️';
+          return tagIcons[tag] || '■';
         }
 
         // Render filtered contacts
@@ -3804,8 +3986,8 @@ app.get('/', (req, res) => {
             const tagContacts = contactsByTag[tag];
             if (tagContacts.length > 0) {
               const tagIcons = {
-                'New Lead': '🎯',
-                'Untagged': '📝'
+                'New Lead': '●',
+                'Untagged': '○'
               };
               
               const tagColors = {
