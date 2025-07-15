@@ -2056,6 +2056,22 @@ app.get('/', (req, res) => {
       <script>
         // Auth function already defined in head
         
+        // Helper function to safely escape onclick attributes
+        function safeOnclick(funcName, ...args) {
+          const escapedArgs = args.map(arg => {
+            if (arg === 'this') {
+              return 'this';
+            }
+            if (typeof arg === 'string') {
+              // Double escape for HTML attribute context
+              const escaped = arg.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\\"');
+              return "'" + escaped + "'";
+            }
+            return String(arg);
+          });
+          return 'onclick="' + funcName + '(' + escapedArgs.join(', ') + ')"';
+        }
+        
         // Tab switching
         document.querySelectorAll('.nav-item').forEach(item => {
           item.addEventListener('click', (e) => {
@@ -2099,11 +2115,9 @@ app.get('/', (req, res) => {
         // Listen for authentication success message
         window.addEventListener('message', (event) => {
           if (event.data && event.data.type === 'google-auth-success') {
-            showStatus('Autenticación completada exitosamente', 'success');
-            updateAuthButton(true);
-            setTimeout(() => {
-              loadCalendarEvents('week');
-            }, 1000);
+            console.log('Auth success received');
+            // Reload page to ensure clean state
+            window.location.reload();
           }
         });
 
@@ -2465,7 +2479,7 @@ app.get('/', (req, res) => {
                   (!isIntothecomEmail ? '<span class="domain-badge">Externo</span>' : '<span class="domain-badge" style="background: #38a169;">IntoTheCom</span>') +
                   (!isIntothecomEmail ? '<div class="tags-container">' +
                     '<div class="tag-selector">' +
-                      '<div class="tag-dropdown" onclick="toggleTagDropdown(\'' + email.replace(/'/g, '&#39;') + '\')">' +
+                      '<div class="tag-dropdown" ' + safeOnclick('toggleTagDropdown', email) + '>' +
                         'Agregar etiqueta ▼' +
                       '</div>' +
                       '<div class="tag-dropdown-content" id="dropdown-' + email.replace(/[^a-zA-Z0-9]/g, '') + '">' +
@@ -2542,7 +2556,7 @@ app.get('/', (req, res) => {
             const tagClass = tag.toLowerCase().replace(/\s+/g, '-');
             const escapedTag = tag.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
             return '<span class="tag-badge ' + tagClass + '">' + tag + 
-                   '<span class="tag-remove" onclick="removeTag(\'' + escapedTag + '\', this)">×</span></span>';
+                   '<span class="tag-remove" ' + safeOnclick('removeTag', tag, 'this') + '>×</span></span>';
           }).join('');
         }
 
@@ -2564,7 +2578,7 @@ app.get('/', (req, res) => {
             const escapedTag = tag.replace(/'/g, '&#39;').replace(/"/g, '&quot;');
             
             return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" ' +
-                   'onclick="toggleTag(\'' + escapedEmail + '\', \'' + escapedTag + '\', this)">' +
+                   safeOnclick('toggleTag', email, tag, 'this') + '>' +
                    tag + (isSelected ? ' ✓' : '') +
                    '</div>';
           }).join('');
@@ -2845,7 +2859,7 @@ app.get('/', (req, res) => {
           dropdown.innerHTML = availableTags.map(tagInfo => {
             const tag = tagInfo.tag;
             const isSelected = (contact.tags || []).includes(tag);
-            return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" onclick="toggleContactTag(\'' + tag + '\')">' +
+            return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" ' + safeOnclick('toggleContactTag', tag) + '>' +
                    tag + (isSelected ? ' ✓' : '') +
                    '</div>';
           }).join('');
@@ -2880,7 +2894,7 @@ app.get('/', (req, res) => {
           dropdown.innerHTML = availableTags.map(tagInfo => {
             const tagName = tagInfo.tag;
             const isSelected = newTags.includes(tagName);
-            return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" onclick="toggleContactTag(\'' + tagName + '\')">' +
+            return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" ' + safeOnclick('toggleContactTag', tagName) + '>' +
                    tagName + (isSelected ? ' ✓' : '') +
                    '</div>';
           }).join('');
@@ -3185,7 +3199,7 @@ app.get('/', (req, res) => {
                 '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
                 '<div class="event-actions">' +
                   (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn">Unirse</a>' : '') +
-                  '<button class="event-details-btn" onclick="showEventDetails(\'' + event.id + '\')">' + 'Detalles</button>' +
+                  '<button class="event-details-btn" ' + safeOnclick('showEventDetails', event.id) + '>Detalles</button>' +
                 '</div>' +
               '</div>'
             ).join('');
@@ -3248,7 +3262,7 @@ app.get('/', (req, res) => {
               });
               
               dayEvents.forEach(event => {
-                html += '<div class="event-block" onclick="showEventDetails(\'' + event.id + '\')">';
+                html += '<div class="event-block" ' + safeOnclick('showEventDetails', event.id) + '>';
                 html += (event.summary || 'Sin título').substring(0, 20);
                 if (event.hangoutLink) {
                   html += '<br><a href="' + event.hangoutLink + '" target="_blank" style="color: white; text-decoration: underline;">Unirse</a>';
@@ -3300,7 +3314,7 @@ app.get('/', (req, res) => {
             const dayClass = isCurrentMonth ? 'month-day' : 'month-day other-month';
             
             html += '<div class="' + dayClass + '">';
-            html += '<div class="month-day-number" onclick="selectDayFromMonth(\'' + getLocalDateString(date) + '\')">' + date.getDate() + '</div>';
+            html += '<div class="month-day-number" ' + safeOnclick('selectDayFromMonth', getLocalDateString(date)) + '>' + date.getDate() + '</div>';
             
             // Find events for this day
             const dayEvents = events.filter(event => {
@@ -3313,7 +3327,7 @@ app.get('/', (req, res) => {
             }
             
             dayEvents.forEach(event => {
-              html += '<div class="month-event" onclick="showEventDetails(\'' + event.id + '\')">';
+              html += '<div class="month-event" ' + safeOnclick('showEventDetails', event.id) + '>';
               html += (event.summary || 'Sin título').substring(0, 15);
               html += '</div>';
             });
@@ -3438,7 +3452,7 @@ app.get('/', (req, res) => {
                     
                     html += contacts.map(contact => {
                       const borderColor = tag === 'Untagged' ? '#e2e8f0' : color;
-                      return '<div class="event-item contact-item" style="border-left: 4px solid ' + borderColor + '; cursor: pointer;" onclick="showContactDetails(\'' + contact.email + '\')">' +
+                      return '<div class="event-item contact-item" style="border-left: 4px solid ' + borderColor + '; cursor: pointer;" ' + safeOnclick('showContactDetails', contact.email) + '>' +
                         '<div class="event-title">' + contact.email + '</div>' +
                         '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + (contact.meeting_count || 0) + ' reuniones</div>' +
                         (contact.tags && contact.tags.length > 0 ? 
