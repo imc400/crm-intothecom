@@ -3713,7 +3713,7 @@ app.get('/', (req, res) => {
           }
           
           if (isAuthenticated) {
-            authButton.innerHTML = '<div class="connection-status connected">✓ Conectado</div>';
+            authButton.innerHTML = '<div class="connection-status connected">&#x2713; Conectado</div>';
             startAutoSync();
           } else {
             authButton.innerHTML = '<button class="btn btn-primary" onclick="authenticateGoogle()">Conectar Google</button>';
@@ -4299,7 +4299,7 @@ app.get('/', (req, res) => {
             
             return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" ' +
                    safeOnclick('toggleTag', email, tag, 'this') + '>' +
-                   tag + (isSelected ? ' ✓' : '') +
+                   tag + (isSelected ? ' &#x2713;' : '') +
                    '</div>';
           }).join('');
         }
@@ -4673,7 +4673,7 @@ app.get('/', (req, res) => {
             const tagName = tagInfo.tag;
             const isSelected = newTags.includes(tagName);
             return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" ' + safeOnclick('toggleContactTag', tagName) + '>' +
-                   tagName + (isSelected ? ' ✓' : '') +
+                   tagName + (isSelected ? ' &#x2713;' : '') +
                    '</div>';
           }).join('');
         }
