@@ -4338,7 +4338,7 @@ app.get('/', (req, res) => {
             // Add tag
             newTags = [...contactData.tags, tag];
             element.classList.add('selected');
-            element.textContent = tag + ' ✓';
+            element.innerHTML = tag + ' &#x2713;';
           }
           
           // Always try to create or update contact with simplified approach
@@ -4415,7 +4415,7 @@ app.get('/', (req, res) => {
                   // Revert UI changes
                   if (isSelected) {
                     element.classList.add('selected');
-                    element.textContent = tag + ' ✓';
+                    element.innerHTML = tag + ' &#x2713;';
                   } else {
                     element.classList.remove('selected');
                     element.textContent = tag;
@@ -4428,7 +4428,7 @@ app.get('/', (req, res) => {
                 // Revert UI changes
                 if (isSelected) {
                   element.classList.add('selected');
-                  element.textContent = tag + ' ✓';
+                  element.innerHTML = tag + ' &#x2713;';
                 } else {
                   element.classList.remove('selected');
                   element.textContent = tag;
