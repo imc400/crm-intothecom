@@ -1886,7 +1886,7 @@ app.get('/', (req, res) => {
                   <div class="auth-prompt">
                     <h3>Conecta tu Google Calendar</h3>
                     <p>Autoriza el acceso a tu calendario para ver y gestionar eventos</p>
-                    <button class="btn btn-primary" onclick="authenticateGoogle()" style="margin-top: 20px;">
+                    <button class="btn btn-primary" onclick="window.startGoogleAuth()" style="margin-top: 20px;">
                       Conectar Google Calendar
                     </button>
                   </div>
@@ -2026,6 +2026,25 @@ app.get('/', (req, res) => {
       </div>
 
       <script>
+        // Define authentication function IMMEDIATELY
+        window.startGoogleAuth = async function() {
+          try {
+            console.log('Starting Google authentication...');
+            const response = await fetch('/api/auth/google');
+            const result = await response.json();
+            
+            if (result.success && result.authUrl) {
+              window.open(result.authUrl, '_blank');
+              console.log('Auth window opened');
+            } else {
+              alert('Error: ' + (result.error || 'Unknown error'));
+            }
+          } catch (error) {
+            console.error('Auth error:', error);
+            alert('Error de conexión');
+          }
+        };
+        
         // Tab switching
         document.querySelectorAll('.nav-item').forEach(item => {
           item.addEventListener('click', (e) => {
@@ -2065,26 +2084,8 @@ app.get('/', (req, res) => {
         }
 
         async function authenticateGoogle() {
-          showStatus('Iniciando autenticación con Google...', 'loading');
-          
-          try {
-            const response = await fetch('/api/auth/google');
-            const result = await response.json();
-            
-            if (result.success) {
-              if (result.authUrl) {
-                window.open(result.authUrl, '_blank');
-                showStatus('Completa la autenticación en la ventana emergente', 'loading');
-              } else {
-                showStatus('Ya estás autenticado', 'success');
-                loadCalendarEvents();
-              }
-            } else {
-              showStatus('Error: ' + result.error, 'error');
-            }
-          } catch (error) {
-            showStatus('Error de conexión: ' + error.message, 'error');
-          }
+          // Use the simple auth function as fallback
+          return window.startGoogleAuth();
         }
 
         // Listen for authentication success message
@@ -2153,7 +2154,7 @@ app.get('/', (req, res) => {
             authButton.innerHTML = '<div class="connection-status connected">✓ Conectado</div>';
             startAutoSync();
           } else {
-            authButton.innerHTML = '<button class="btn btn-primary" onclick="authenticateGoogle()">Conectar Google</button>';
+            authButton.innerHTML = '<button class="btn btn-primary" onclick="window.startGoogleAuth()">Conectar Google</button>';
             stopAutoSync();
             // Also update calendar grid to show connection prompt
             const calendarGrid = document.querySelector('.calendar-grid');
@@ -2164,7 +2165,7 @@ app.get('/', (req, res) => {
                 '<div class="auth-prompt">' +
                   '<h3>Conecta tu Google Calendar</h3>' +
                   '<p>Autoriza el acceso a tu calendario para ver y gestionar eventos</p>' +
-                  '<button class="btn btn-primary" onclick="authenticateGoogle()" style="margin-top: 20px;">' +
+                  '<button class="btn btn-primary" onclick="window.startGoogleAuth()" style="margin-top: 20px;">' +
                     'Conectar Google Calendar' +
                   '</button>' +
                 '</div>';
