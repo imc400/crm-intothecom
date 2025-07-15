@@ -142,6 +142,32 @@ async function initDatabase() {
       ON CONFLICT (name) DO NOTHING
     `);
     
+    // Create google_tokens table for token persistence
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS google_tokens (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        tokens JSONB NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Initialize Google Auth and load stored tokens if they exist
+    initializeGoogleAuth();
+    
+    try {
+      const tokenResult = await pool.query('SELECT tokens FROM google_tokens WHERE id = 1');
+      if (tokenResult.rows.length > 0) {
+        storedTokens = tokenResult.rows[0].tokens;
+        if (oAuth2Client && storedTokens) {
+          oAuth2Client.setCredentials(storedTokens);
+          console.log('Loaded stored Google tokens from database');
+        }
+      }
+    } catch (tokenError) {
+      console.error('Error loading stored tokens:', tokenError);
+    }
+    
     // Create trigger to update updated_at timestamp
     await pool.query(`
       CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -1050,13 +1076,7 @@ function initializeGoogleAuth() {
   }
 }
 
-// Initialize Google Auth on startup
-initializeGoogleAuth();
-
-// Restore tokens if they exist
-if (storedTokens && oAuth2Client) {
-  oAuth2Client.setCredentials(storedTokens);
-}
+// Google Auth will be initialized in initDatabase() function
 
 // Google Authentication endpoints
 app.get('/api/auth/google', (req, res) => {
@@ -1093,6 +1113,19 @@ app.get('/api/auth/google/callback', async (req, res) => {
     oAuth2Client.setCredentials(tokens);
     storedTokens = tokens;
     
+    // Persist tokens to database
+    try {
+      await pool.query(`
+        INSERT INTO google_tokens (id, tokens, created_at, updated_at) 
+        VALUES (1, $1, NOW(), NOW())
+        ON CONFLICT (id) 
+        DO UPDATE SET tokens = $1, updated_at = NOW()
+      `, [JSON.stringify(tokens)]);
+      console.log('Tokens persisted to database');
+    } catch (dbError) {
+      console.error('Error persisting tokens to database:', dbError);
+    }
+    
     console.log('Google Calendar authentication successful');
     
     res.send(`
@@ -1122,12 +1155,17 @@ app.get('/api/auth/google/callback', async (req, res) => {
 // Check authentication status
 app.get('/api/auth/status', async (req, res) => {
   try {
+    console.log('Auth status check - oAuth2Client exists:', !!oAuth2Client);
+    console.log('Auth status check - storedTokens exists:', !!storedTokens);
+    
     const isAuthenticated = !!(oAuth2Client && storedTokens);
     
     if (isAuthenticated) {
+      console.log('Testing tokens validity...');
       // Verify tokens are still valid by making a test request
       const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
       await calendar.calendarList.list({ maxResults: 1 });
+      console.log('Tokens are valid');
     }
     
     res.json({
@@ -3653,28 +3691,38 @@ app.get('/', (req, res) => {
         // Listen for authentication success message
         window.addEventListener('message', (event) => {
           if (event.data && event.data.type === 'google-auth-success') {
-            console.log('Auth success received - reloading page');
-            // Small delay to ensure the auth process is complete
+            console.log('Auth success received - checking status and reloading');
+            // Longer delay to ensure auth process is complete server-side
             setTimeout(() => {
-              window.location.reload();
-            }, 500);
+              checkAuthStatus();
+              // Additional delay before reload if needed
+              setTimeout(() => {
+                window.location.reload();
+              }, 1000);
+            }, 1500);
           }
         });
 
         // Check authentication status on page load
         async function checkAuthStatus() {
           try {
+            console.log('Checking auth status...');
             const response = await fetch('/api/auth/status');
             const result = await response.json();
             
+            console.log('Auth status result:', result);
+            
             if (result.success && result.authenticated) {
+              console.log('User is authenticated, updating UI...');
               updateAuthButton(true);
               // Load calendar events automatically if authenticated
               const activeTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab');
               if (activeTab === 'calendar' || !activeTab) {
+                console.log('Loading calendar events...');
                 loadCalendarEvents('week');
               }
             } else {
+              console.log('User is not authenticated');
               updateAuthButton(false);
             }
           } catch (error) {
@@ -3793,10 +3841,10 @@ app.get('/', (req, res) => {
         // Check auth status on page load
         document.addEventListener('DOMContentLoaded', () => {
           updateCalendarTitle();
-          // Add a small delay to ensure DOM is fully rendered
+          // Increased delay to ensure DOM is fully rendered and server state is consistent
           setTimeout(() => {
             checkAuthStatus();
-          }, 100);
+          }, 1000);
         });
         
         // Check auth status when tab becomes visible, but don't reload events unnecessarily
