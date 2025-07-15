@@ -2050,6 +2050,20 @@ app.get('/', (req, res) => {
           });
         });
 
+        // Simple status function defined first
+        function showStatus(message, type) {
+          console.log('Status:', message, type);
+          const statusDiv = document.getElementById('status') || document.getElementById('syncStatus');
+          if (statusDiv) {
+            statusDiv.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
+          } else {
+            const calendarGrid = document.querySelector('.calendar-grid');
+            if (calendarGrid && type !== 'loading') {
+              calendarGrid.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
+            }
+          }
+        }
+
         async function authenticateGoogle() {
           showStatus('Iniciando autenticación con Google...', 'loading');
           
@@ -3307,18 +3321,7 @@ app.get('/', (req, res) => {
           }
         }
 
-        function showStatus(message, type) {
-          const statusDiv = document.getElementById('status') || document.getElementById('syncStatus');
-          if (statusDiv) {
-            statusDiv.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
-          } else {
-            // Show status in calendar grid if no status div found
-            const calendarGrid = document.querySelector('.calendar-grid');
-            if (calendarGrid) {
-              calendarGrid.innerHTML = '<div class="status ' + type + '">' + message + '</div>';
-            }
-          }
-        }
+        // showStatus function moved to top of script
 
         async function syncContacts() {
           const statusDiv = document.getElementById('syncStatus');
