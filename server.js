@@ -4424,7 +4424,7 @@ app.get('/', (req, res) => {
               // Reload available tags for events
               loadTagsAndContacts();
               // Reload contacts to reflect changes
-              loadContactsWithFilters();
+              loadContactsWithFiltering();
               // Reload tag management modal if open
               if (document.getElementById('tagManagementModal').style.display === 'block') {
                 loadTagManagementList();
@@ -4474,7 +4474,7 @@ app.get('/', (req, res) => {
               // Reload available tags for events
               loadTagsAndContacts();
               // Reload contacts to reflect changes
-              loadContactsWithFilters();
+              loadContactsWithFiltering();
               // Reload tag management modal if open
               if (document.getElementById('tagManagementModal').style.display === 'block') {
                 loadTagManagementList();
