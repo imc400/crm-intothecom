@@ -1828,18 +1828,34 @@ app.get('/', (req, res) => {
           background: #E55A00;
         }
         
-        .event-details-btn {
-          background: #e2e8f0;
-          color: #4a5568;
-          border: none;
-          padding: 6px 12px;
-          border-radius: 4px;
-          font-size: 12px;
+        .event-item.event-clickable {
           cursor: pointer;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          position: relative;
+          overflow: hidden;
         }
         
-        .event-details-btn:hover {
-          background: #cbd5e0;
+        .event-item.event-clickable:hover {
+          transform: translateY(-4px);
+          box-shadow: 0 12px 32px rgba(255, 107, 0, 0.2);
+          border-color: rgba(255, 107, 0, 0.3);
+        }
+        
+        .event-item.event-clickable::before {
+          content: '';
+          position: absolute;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: 4px;
+          background: linear-gradient(180deg, #FF6B00, #FF8533);
+          transform: scaleY(0);
+          transform-origin: bottom;
+          transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .event-item.event-clickable:hover::before {
+          transform: scaleY(1);
         }
         
         /* Modal styles */
@@ -4286,13 +4302,12 @@ app.get('/', (req, res) => {
             }
             
             calendarGrid.innerHTML = dayEvents.map(event => 
-              '<div class="event-item">' +
+              '<div class="event-item event-clickable" ' + safeOnclick('showEventDetails', event.id) + '>' +
                 '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
                 '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
                 '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
                 '<div class="event-actions">' +
-                  (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn">Unirse</a>' : '') +
-                  '<button class="event-details-btn" ' + safeOnclick('showEventDetails', event.id) + '>Detalles</button>' +
+                  (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn" onclick="event.stopPropagation();">Unirse</a>' : '') +
                 '</div>' +
               '</div>'
             ).join('');
