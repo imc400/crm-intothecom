@@ -2421,6 +2421,127 @@ app.get('/', (req, res) => {
           transform: translateY(-1px);
         }
         
+        /* Contact Tags Display */
+        .contact-tags-display {
+          min-height: 60px;
+          padding: 12px;
+          border: 2px dashed rgba(255, 255, 255, 0.2);
+          border-radius: 12px;
+          background: rgba(255, 255, 255, 0.05);
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          align-items: center;
+          margin-bottom: 16px;
+          transition: all 0.3s ease;
+        }
+        
+        .contact-tags-display:hover {
+          border-color: rgba(255, 107, 0, 0.4);
+          background: rgba(255, 107, 0, 0.05);
+        }
+        
+        .contact-tags-display.empty::before {
+          content: 'Sin etiquetas asignadas';
+          color: #9ca3af;
+          font-style: italic;
+        }
+        
+        .contact-tag-item {
+          background: linear-gradient(135deg, var(--primary-orange), #ff8533);
+          color: white;
+          padding: 8px 16px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 600;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          transition: all 0.3s ease;
+        }
+        
+        .contact-tag-item:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(255, 107, 0, 0.3);
+        }
+        
+        .contact-tag-remove {
+          background: rgba(255, 255, 255, 0.2);
+          border: none;
+          color: white;
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          font-size: 12px;
+          line-height: 1;
+          transition: all 0.3s ease;
+        }
+        
+        .contact-tag-remove:hover {
+          background: rgba(255, 255, 255, 0.3);
+          transform: scale(1.1);
+        }
+        
+        .tags-management-controls {
+          display: flex;
+          gap: 16px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        
+        .tag-selector-dropdown {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          flex: 1;
+        }
+        
+        .btn-add-tag {
+          background: linear-gradient(135deg, #28a745, #20c997);
+          color: white;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 8px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          white-space: nowrap;
+        }
+        
+        .btn-add-tag:hover {
+          background: linear-gradient(135deg, #20c997, #17a2b8);
+          transform: translateY(-1px);
+        }
+        
+        .btn-add-tag:disabled {
+          background: #6c757d;
+          cursor: not-allowed;
+          transform: none;
+        }
+        
+        .btn-manage-tags {
+          background: linear-gradient(135deg, #6f42c1, #5a2d91);
+          color: white;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 8px;
+          font-size: 12px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          white-space: nowrap;
+        }
+        
+        .btn-manage-tags:hover {
+          background: linear-gradient(135deg, #5a2d91, #4c1d7a);
+          transform: translateY(-1px);
+        }
+        
         .color-picker-container {
           display: flex;
           gap: 12px;
@@ -3647,29 +3768,28 @@ app.get('/', (req, res) => {
               </div>
             </div>
 
-            <!-- CRM Status Section -->
+            <!-- Tags Management Section -->
             <div class="crm-section">
-              <h3 class="section-title">Estado del Lead</h3>
-              <div class="form-row">
-                <div class="form-group">
-                  <label class="form-label">Estado Actual</label>
-                  <select id="contactStatus" class="form-select status-select">
-                    <option value="New Lead">🔥 New Lead</option>
-                    <option value="Qualified Lead">⭐ Qualified Lead</option>
-                    <option value="Proposal Sent">📋 Proposal Sent</option>
-                    <option value="Negotiation">💬 Negotiation</option>
-                    <option value="Client">✅ Client</option>
-                    <option value="Lost">❌ Lost</option>
-                    <option value="Follow Up">🔄 Follow Up</option>
-                  </select>
+              <h3 class="section-title">Etiquetas</h3>
+              <div class="form-group">
+                <label class="form-label">Etiquetas Asignadas</label>
+                <div class="contact-tags-display" id="contactTagsDisplay">
+                  <!-- Tags will be populated here -->
                 </div>
-                <div class="form-group">
-                  <label class="form-label">Prioridad</label>
-                  <select id="contactPriority" class="form-select priority-select">
-                    <option value="Low">🟢 Low</option>
-                    <option value="Medium">🟡 Medium</option>
-                    <option value="High">🔴 High</option>
-                  </select>
+                <div class="tags-management-controls">
+                  <div class="tag-selector-dropdown">
+                    <select id="contactTagSelector" class="form-select">
+                      <option value="">Seleccionar etiqueta</option>
+                    </select>
+                    <button type="button" class="btn-add-tag" onclick="addTagToContact()">
+                      Agregar
+                    </button>
+                  </div>
+                  <div class="tag-quick-actions">
+                    <button type="button" class="btn-manage-tags" onclick="showTagManagementModal()">
+                      Gestionar Etiquetas
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -5078,24 +5198,9 @@ app.get('/', (req, res) => {
           document.getElementById('contactWebsite').value = contact.website || '';
           document.getElementById('contactIndustry').value = contact.industry || '';
           
-          // CRM Status - Map old tags to new status system
-          const statusMapping = {
-            'New Lead': 'New Lead',
-            'Client': 'Client',
-            'Lost': 'Lost'
-          };
-          
-          // Check if contact has specific tags that map to status
-          let contactStatus = 'New Lead'; // Default
-          if (contact.tags && contact.tags.length > 0) {
-            const mappedStatus = contact.tags.find(tag => statusMapping[tag]);
-            if (mappedStatus) {
-              contactStatus = statusMapping[mappedStatus];
-            }
-          }
-          
-          document.getElementById('contactStatus').value = contact.status || contactStatus;
-          document.getElementById('contactPriority').value = contact.priority || 'Medium';
+          // Tags Management - Populate current tags and available tags
+          populateContactTags(contact.tags || []);
+          loadAvailableTagsForContact();
           
           // Activity Information
           document.getElementById('contactMeetingCount').value = contact.meeting_count || 0;
@@ -5146,6 +5251,93 @@ app.get('/', (req, res) => {
           currentContactData = null;
         }
         
+        // Contact Tags Management Functions
+        function populateContactTags(tags) {
+          const tagsDisplay = document.getElementById('contactTagsDisplay');
+          
+          if (!tags || tags.length === 0) {
+            tagsDisplay.innerHTML = '';
+            tagsDisplay.classList.add('empty');
+            return;
+          }
+          
+          tagsDisplay.classList.remove('empty');
+          tagsDisplay.innerHTML = tags.map(tag => {
+            const tagColor = getTagColor(tag);
+            return '<div class="contact-tag-item" style="background: ' + tagColor + ';">' +
+                     '<span>' + tag + '</span>' +
+                     '<button class="contact-tag-remove" onclick="removeTagFromContact(\'' + tag.replace(/'/g, "\\'") + '\')">' +
+                       '×' +
+                     '</button>' +
+                   '</div>';
+          }).join('');
+        }
+        
+        async function loadAvailableTagsForContact() {
+          try {
+            const response = await fetch('/api/tags');
+            const result = await response.json();
+            
+            const selector = document.getElementById('contactTagSelector');
+            selector.innerHTML = '<option value="">Seleccionar etiqueta</option>';
+            
+            if (result.success && result.data) {
+              result.data.forEach(tagInfo => {
+                const option = document.createElement('option');
+                option.value = tagInfo.tag;
+                option.textContent = tagInfo.tag;
+                selector.appendChild(option);
+              });
+            }
+          } catch (error) {
+            console.error('Error loading available tags:', error);
+          }
+        }
+        
+        function addTagToContact() {
+          const selector = document.getElementById('contactTagSelector');
+          const selectedTag = selector.value;
+          
+          if (!selectedTag) {
+            alert('Por favor selecciona una etiqueta');
+            return;
+          }
+          
+          // Check if tag already exists
+          if (currentContactData && currentContactData.tags && currentContactData.tags.includes(selectedTag)) {
+            alert('Esta etiqueta ya está asignada');
+            return;
+          }
+          
+          // Add tag to current contact data
+          if (!currentContactData.tags) {
+            currentContactData.tags = [];
+          }
+          currentContactData.tags.push(selectedTag);
+          
+          // Update display
+          populateContactTags(currentContactData.tags);
+          
+          // Reset selector
+          selector.value = '';
+          
+          // Enable save button (could be added later)
+          // markModalAsModified();
+        }
+        
+        function removeTagFromContact(tag) {
+          if (!currentContactData || !currentContactData.tags) return;
+          
+          // Remove tag from current contact data
+          currentContactData.tags = currentContactData.tags.filter(t => t !== tag);
+          
+          // Update display
+          populateContactTags(currentContactData.tags);
+          
+          // Enable save button (could be added later)
+          // markModalAsModified();
+        }
+        
         async function saveContactDetails() {
           if (!currentContactData) return;
           
@@ -5158,8 +5350,6 @@ app.get('/', (req, res) => {
           const position = document.getElementById('contactPosition').value;
           const website = document.getElementById('contactWebsite').value;
           const industry = document.getElementById('contactIndustry').value;
-          const status = document.getElementById('contactStatus').value;
-          const priority = document.getElementById('contactPriority').value;
           const notes = document.getElementById('contactNotes').value;
           const tags = currentContactData.tags || [];
           
@@ -5176,8 +5366,6 @@ app.get('/', (req, res) => {
                 position: position,
                 website: website,
                 industry: industry,
-                status: status,
-                priority: priority,
                 notes: notes,
                 tags: tags
               })
