@@ -2816,7 +2816,7 @@ app.get('/', (req, res) => {
           dropdown.innerHTML = availableTags.map(tagInfo => {
             const tag = tagInfo.tag;
             const isSelected = (contact.tags || []).includes(tag);
-            return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" onclick="toggleContactTag(\'' + tag + '\')")">' +
+            return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" onclick="toggleContactTag(\'' + tag + '\')">' +
                    tag + (isSelected ? ' ✓' : '') +
                    '</div>';
           }).join('');
@@ -2851,7 +2851,7 @@ app.get('/', (req, res) => {
           dropdown.innerHTML = availableTags.map(tagInfo => {
             const tagName = tagInfo.tag;
             const isSelected = newTags.includes(tagName);
-            return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" onclick="toggleContactTag(\'' + tagName + '\')")">' +
+            return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" onclick="toggleContactTag(\'' + tagName + '\')">' +
                    tagName + (isSelected ? ' ✓' : '') +
                    '</div>';
           }).join('');
