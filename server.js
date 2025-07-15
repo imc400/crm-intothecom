@@ -4045,12 +4045,12 @@ app.get('/', (req, res) => {
             return;
           }
           
-          if (!confirm(`¿Estás seguro de que quieres eliminar la etiqueta "${tagName}"? Esta acción no se puede deshacer.`)) {
+          if (!confirm('¿Estás seguro de que quieres eliminar la etiqueta "' + tagName + '"? Esta acción no se puede deshacer.')) {
             return;
           }
           
           try {
-            const response = await fetch(`/api/tags/${tagId}`, {
+            const response = await fetch('/api/tags/' + tagId, {
               method: 'DELETE'
             });
             
