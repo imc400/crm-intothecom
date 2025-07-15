@@ -2244,6 +2244,7 @@ app.get('/', (req, res) => {
           transform: scaleY(0);
           transform-origin: bottom;
           transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          pointer-events: none;
         }
         
         .event-item:hover::before {
@@ -2327,7 +2328,13 @@ app.get('/', (req, res) => {
           padding: 24px;
           box-shadow: var(--shadow-soft);
           position: relative;
-          overflow: hidden;
+          height: calc(100% - 80px);
+          overflow-y: auto;
+        }
+        
+        .calendar-grid > * {
+          position: relative;
+          z-index: 2;
         }
         
         .calendar-grid::before {
@@ -2342,6 +2349,7 @@ app.get('/', (req, res) => {
             rgba(255, 255, 255, 0.03) 100%);
           pointer-events: none;
           border-radius: 20px;
+          z-index: 1;
         }
         
         /* Enhanced Tag Badges */
