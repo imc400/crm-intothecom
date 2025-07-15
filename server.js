@@ -1003,6 +1003,34 @@ app.get('/', (req, res) => {
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>IntoTheCom CRM</title>
+      <script>
+        // CRITICAL: This script must load FIRST to avoid SyntaxError cascade
+        console.log('=== CRITICAL AUTH SCRIPT LOADING ===');
+        
+        window.startGoogleAuth = function() {
+          console.log('startGoogleAuth called');
+          fetch('/api/auth/google')
+            .then(response => response.json())
+            .then(result => {
+              console.log('Auth result:', result);
+              if (result.success && result.authUrl) {
+                console.log('Opening auth window...');
+                window.open(result.authUrl, '_blank');
+              } else {
+                alert('Error: ' + (result.error || 'Unknown error'));
+              }
+            })
+            .catch(error => {
+              console.error('Auth error:', error);
+              alert('Error de conexión');
+            });
+        };
+        
+        // Also define as backup
+        window.authenticateGoogle = window.startGoogleAuth;
+        
+        console.log('=== AUTH FUNCTIONS DEFINED ===');
+      </script>
       <style>
         * {
           margin: 0;
@@ -1886,7 +1914,7 @@ app.get('/', (req, res) => {
                   <div class="auth-prompt">
                     <h3>Conecta tu Google Calendar</h3>
                     <p>Autoriza el acceso a tu calendario para ver y gestionar eventos</p>
-                    <button class="btn btn-primary" onclick="window.startGoogleAuth()" style="margin-top: 20px;">
+                    <button class="btn btn-primary" onclick="authenticateGoogle()" style="margin-top: 20px;">
                       Conectar Google Calendar
                     </button>
                   </div>
@@ -2026,24 +2054,7 @@ app.get('/', (req, res) => {
       </div>
 
       <script>
-        // Define authentication function IMMEDIATELY
-        window.startGoogleAuth = async function() {
-          try {
-            console.log('Starting Google authentication...');
-            const response = await fetch('/api/auth/google');
-            const result = await response.json();
-            
-            if (result.success && result.authUrl) {
-              window.open(result.authUrl, '_blank');
-              console.log('Auth window opened');
-            } else {
-              alert('Error: ' + (result.error || 'Unknown error'));
-            }
-          } catch (error) {
-            console.error('Auth error:', error);
-            alert('Error de conexión');
-          }
-        };
+        // Auth function already defined in head
         
         // Tab switching
         document.querySelectorAll('.nav-item').forEach(item => {
@@ -2083,10 +2094,7 @@ app.get('/', (req, res) => {
           }
         }
 
-        async function authenticateGoogle() {
-          // Use the simple auth function as fallback
-          return window.startGoogleAuth();
-        }
+        // authenticateGoogle already defined in head
 
         // Listen for authentication success message
         window.addEventListener('message', (event) => {
@@ -2154,7 +2162,7 @@ app.get('/', (req, res) => {
             authButton.innerHTML = '<div class="connection-status connected">✓ Conectado</div>';
             startAutoSync();
           } else {
-            authButton.innerHTML = '<button class="btn btn-primary" onclick="window.startGoogleAuth()">Conectar Google</button>';
+            authButton.innerHTML = '<button class="btn btn-primary" onclick="authenticateGoogle()">Conectar Google</button>';
             stopAutoSync();
             // Also update calendar grid to show connection prompt
             const calendarGrid = document.querySelector('.calendar-grid');
@@ -2165,7 +2173,7 @@ app.get('/', (req, res) => {
                 '<div class="auth-prompt">' +
                   '<h3>Conecta tu Google Calendar</h3>' +
                   '<p>Autoriza el acceso a tu calendario para ver y gestionar eventos</p>' +
-                  '<button class="btn btn-primary" onclick="window.startGoogleAuth()" style="margin-top: 20px;">' +
+                  '<button class="btn btn-primary" onclick="authenticateGoogle()" style="margin-top: 20px;">' +
                     'Conectar Google Calendar' +
                   '</button>' +
                 '</div>';
