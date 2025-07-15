@@ -101,6 +101,29 @@ async function initDatabase() {
       }
     }
     
+    // Add new CRM fields
+    const newColumns = [
+      { name: 'phone', type: 'VARCHAR(50)', description: 'Phone number' },
+      { name: 'company', type: 'VARCHAR(255)', description: 'Company name' },
+      { name: 'position', type: 'VARCHAR(255)', description: 'Job position' },
+      { name: 'website', type: 'VARCHAR(255)', description: 'Company website' },
+      { name: 'industry', type: 'VARCHAR(100)', description: 'Industry' },
+      { name: 'status', type: 'VARCHAR(50) DEFAULT \'New Lead\'', description: 'Lead status' },
+      { name: 'priority', type: 'VARCHAR(20) DEFAULT \'Medium\'', description: 'Lead priority' }
+    ];
+    
+    for (const column of newColumns) {
+      try {
+        await pool.query(`SELECT ${column.name} FROM contacts LIMIT 1`);
+      } catch (columnError) {
+        if (columnError.code === '42703') { // Column does not exist
+          console.log(`Adding ${column.name} column to contacts table...`);
+          await pool.query(`ALTER TABLE contacts ADD COLUMN ${column.name} ${column.type}`);
+          console.log(`${column.name} column added successfully`);
+        }
+      }
+    }
+    
     // Create trigger to update updated_at timestamp
     await pool.query(`
       CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -352,6 +375,87 @@ app.post('/api/contacts/:contactId/tags', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to update contact tags'
+    });
+  }
+});
+
+// Update contact with full CRM information
+app.post('/api/contacts/:contactId/update', async (req, res) => {
+  const { contactId } = req.params;
+  const { 
+    name, 
+    phone, 
+    company, 
+    position, 
+    website, 
+    industry, 
+    status, 
+    priority, 
+    notes, 
+    tags 
+  } = req.body;
+  
+  try {
+    // Validate tags array
+    if (tags && !Array.isArray(tags)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Tags must be an array'
+      });
+    }
+    
+    // Update contact in database
+    const updateQuery = `
+      UPDATE contacts 
+      SET name = $1, 
+          phone = $2, 
+          company = $3, 
+          position = $4, 
+          website = $5, 
+          industry = $6, 
+          status = $7, 
+          priority = $8, 
+          notes = $9, 
+          tags = $10,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $11
+      RETURNING *
+    `;
+    
+    const values = [
+      name || null,
+      phone || null,
+      company || null,
+      position || null,
+      website || null,
+      industry || null,
+      status || 'New Lead',
+      priority || 'Medium',
+      notes || null,
+      tags || [],
+      contactId
+    ];
+    
+    const result = await pool.query(updateQuery, values);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Contact not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: 'Contact updated successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error updating contact:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update contact: ' + error.message
     });
   }
 });
@@ -1858,6 +1962,128 @@ app.get('/', (req, res) => {
           transform: scaleY(1);
         }
         
+        /* CRM Modal Styles */
+        .crm-modal {
+          width: 95%;
+          max-width: 1000px;
+          max-height: 90vh;
+          overflow-y: auto;
+        }
+        
+        .crm-section {
+          margin-bottom: 32px;
+          padding: 24px;
+          background: linear-gradient(135deg, 
+            rgba(255, 255, 255, 0.1) 0%, 
+            rgba(255, 255, 255, 0.05) 100%);
+          border: 1px solid var(--border-light);
+          border-radius: 16px;
+          backdrop-filter: blur(20px);
+        }
+        
+        .section-title {
+          color: var(--primary-orange);
+          font-size: 18px;
+          font-weight: 700;
+          margin-bottom: 20px;
+          padding-bottom: 8px;
+          border-bottom: 2px solid rgba(255, 107, 0, 0.1);
+          display: flex;
+          align-items: center;
+        }
+        
+        .section-title::before {
+          content: '';
+          width: 4px;
+          height: 20px;
+          background: linear-gradient(135deg, #FF6B00, #FF8533);
+          margin-right: 12px;
+          border-radius: 2px;
+        }
+        
+        .form-row {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+          margin-bottom: 16px;
+        }
+        
+        .form-group {
+          display: flex;
+          flex-direction: column;
+        }
+        
+        .form-label {
+          font-weight: 600;
+          color: var(--text-primary);
+          margin-bottom: 8px;
+          font-size: 14px;
+        }
+        
+        .form-input, .form-select {
+          padding: 12px 16px;
+          border: 1px solid var(--border-light);
+          border-radius: 10px;
+          font-size: 14px;
+          background: var(--surface-primary);
+          color: var(--text-primary);
+          transition: all 0.3s ease;
+        }
+        
+        .form-input:focus, .form-select:focus {
+          outline: none;
+          border-color: var(--primary-orange);
+          box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.1);
+        }
+        
+        .form-textarea {
+          padding: 12px 16px;
+          border: 1px solid var(--border-light);
+          border-radius: 10px;
+          font-size: 14px;
+          background: var(--surface-primary);
+          color: var(--text-primary);
+          resize: vertical;
+          min-height: 100px;
+          transition: all 0.3s ease;
+        }
+        
+        .form-textarea:focus {
+          outline: none;
+          border-color: var(--primary-orange);
+          box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.1);
+        }
+        
+        .status-select {
+          background: linear-gradient(135deg, 
+            rgba(255, 107, 0, 0.05) 0%, 
+            rgba(255, 133, 51, 0.02) 100%);
+          font-weight: 600;
+        }
+        
+        .priority-select {
+          background: linear-gradient(135deg, 
+            rgba(255, 107, 0, 0.05) 0%, 
+            rgba(255, 133, 51, 0.02) 100%);
+          font-weight: 600;
+        }
+        
+        @media (max-width: 768px) {
+          .form-row {
+            grid-template-columns: 1fr;
+            gap: 16px;
+          }
+          
+          .crm-modal {
+            width: 100%;
+            margin: 10px;
+          }
+          
+          .crm-section {
+            padding: 16px;
+          }
+        }
+
         /* Modal styles */
         .modal {
           display: none;
@@ -2927,54 +3153,124 @@ app.get('/', (req, res) => {
         </div>
       </div>
 
-      <!-- Contact Details Modal -->
+      <!-- Contact CRM Modal -->
       <div id="contactModal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content crm-modal">
           <div class="modal-header">
-            <h2>Detalles del Contacto</h2>
+            <h2>Gestión de Contacto CRM</h2>
             <span class="close-btn" onclick="closeContactModal()">&times;</span>
           </div>
           
           <div class="modal-body">
-            <div class="form-group">
-              <label>Email</label>
-              <input type="email" id="contactEmail" class="form-input" readonly style="background: #f7fafc;">
-            </div>
-            
-            <div class="form-group">
-              <label>Nombre</label>
-              <input type="text" id="contactName" class="form-input" placeholder="Nombre del contacto">
-            </div>
-            
-            <div class="form-group">
-              <label>Número de reuniones</label>
-              <input type="number" id="contactMeetingCount" class="form-input" placeholder="0">
-            </div>
-            
-            <div class="form-group">
-              <label>Primera reunión</label>
-              <input type="date" id="contactFirstSeen" class="form-input">
-            </div>
-            
-            <div class="form-group">
-              <label>Última reunión</label>
-              <input type="date" id="contactLastSeen" class="form-input">
-            </div>
-            
-            <div class="form-group">
-              <label>Etiquetas</label>
-              <div id="contactTagsContainer" class="contact-tags"></div>
-              <div class="tag-selector" style="margin-top: 10px;">
-                <div class="tag-dropdown" onclick="toggleContactTagDropdown()">
-                  Agregar etiqueta ▼
+            <!-- Personal Information Section -->
+            <div class="crm-section">
+              <h3 class="section-title">Información Personal</h3>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Nombre *</label>
+                  <input type="text" id="contactFirstName" class="form-input" placeholder="Nombre">
                 </div>
-                <div class="tag-dropdown-content" id="contactTagDropdown"></div>
+                <div class="form-group">
+                  <label class="form-label">Apellido *</label>
+                  <input type="text" id="contactLastName" class="form-input" placeholder="Apellido">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Email</label>
+                  <input type="email" id="contactEmail" class="form-input" readonly style="background: #f7fafc;">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Teléfono</label>
+                  <input type="tel" id="contactPhone" class="form-input" placeholder="+56 9 1234 5678">
+                </div>
               </div>
             </div>
-            
-            <div class="form-group">
-              <label>Notas</label>
-              <textarea id="contactNotes" class="form-textarea" placeholder="Notas sobre este contacto..."></textarea>
+
+            <!-- Company Information Section -->
+            <div class="crm-section">
+              <h3 class="section-title">Información de Empresa</h3>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Nombre de Empresa</label>
+                  <input type="text" id="contactCompany" class="form-input" placeholder="Nombre de la empresa">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Cargo</label>
+                  <input type="text" id="contactPosition" class="form-input" placeholder="CEO, Manager, etc.">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Sitio Web</label>
+                  <input type="url" id="contactWebsite" class="form-input" placeholder="https://ejemplo.com">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Industria</label>
+                  <select id="contactIndustry" class="form-select">
+                    <option value="">Seleccionar industria</option>
+                    <option value="Tecnología">Tecnología</option>
+                    <option value="Marketing">Marketing</option>
+                    <option value="Retail">Retail</option>
+                    <option value="Salud">Salud</option>
+                    <option value="Educación">Educación</option>
+                    <option value="Finanzas">Finanzas</option>
+                    <option value="Construcción">Construcción</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- CRM Status Section -->
+            <div class="crm-section">
+              <h3 class="section-title">Estado del Lead</h3>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Estado Actual</label>
+                  <select id="contactStatus" class="form-select status-select">
+                    <option value="New Lead">🔥 New Lead</option>
+                    <option value="Qualified Lead">⭐ Qualified Lead</option>
+                    <option value="Proposal Sent">📋 Proposal Sent</option>
+                    <option value="Negotiation">💬 Negotiation</option>
+                    <option value="Client">✅ Client</option>
+                    <option value="Lost">❌ Lost</option>
+                    <option value="Follow Up">🔄 Follow Up</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Prioridad</label>
+                  <select id="contactPriority" class="form-select priority-select">
+                    <option value="Low">🟢 Low</option>
+                    <option value="Medium">🟡 Medium</option>
+                    <option value="High">🔴 High</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <!-- Activity Information Section -->
+            <div class="crm-section">
+              <h3 class="section-title">Actividad</h3>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Total Reuniones</label>
+                  <input type="number" id="contactMeetingCount" class="form-input" readonly style="background: #f7fafc;">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Última Reunión</label>
+                  <input type="date" id="contactLastSeen" class="form-input" readonly style="background: #f7fafc;">
+                </div>
+              </div>
+            </div>
+
+            <!-- Notes Section -->
+            <div class="crm-section">
+              <h3 class="section-title">Notas y Observaciones</h3>
+              <div class="form-group">
+                <label class="form-label">Notas Internas</label>
+                <textarea id="contactNotes" class="form-textarea" placeholder="Notas sobre el contacto, seguimiento, observaciones importantes, etc." rows="4"></textarea>
+              </div>
             </div>
           </div>
           
@@ -3934,26 +4230,49 @@ app.get('/', (req, res) => {
         }
         
         function populateContactModal(contact) {
+          // Parse full name into first and last name
+          const fullName = contact.name || '';
+          const nameParts = fullName.split(' ');
+          const firstName = nameParts[0] || '';
+          const lastName = nameParts.slice(1).join(' ') || '';
+          
+          // Personal Information
+          document.getElementById('contactFirstName').value = firstName;
+          document.getElementById('contactLastName').value = lastName;
           document.getElementById('contactEmail').value = contact.email || '';
-          document.getElementById('contactName').value = contact.name || '';
+          document.getElementById('contactPhone').value = contact.phone || '';
+          
+          // Company Information
+          document.getElementById('contactCompany').value = contact.company || '';
+          document.getElementById('contactPosition').value = contact.position || '';
+          document.getElementById('contactWebsite').value = contact.website || '';
+          document.getElementById('contactIndustry').value = contact.industry || '';
+          
+          // CRM Status - Map old tags to new status system
+          const statusMapping = {
+            'New Lead': 'New Lead',
+            'Client': 'Client',
+            'Lost': 'Lost'
+          };
+          
+          // Check if contact has specific tags that map to status
+          let contactStatus = 'New Lead'; // Default
+          if (contact.tags && contact.tags.length > 0) {
+            const mappedStatus = contact.tags.find(tag => statusMapping[tag]);
+            if (mappedStatus) {
+              contactStatus = statusMapping[mappedStatus];
+            }
+          }
+          
+          document.getElementById('contactStatus').value = contact.status || contactStatus;
+          document.getElementById('contactPriority').value = contact.priority || 'Medium';
+          
+          // Activity Information
           document.getElementById('contactMeetingCount').value = contact.meeting_count || 0;
-          document.getElementById('contactFirstSeen').value = contact.first_seen || '';
           document.getElementById('contactLastSeen').value = contact.last_seen || '';
+          
+          // Notes
           document.getElementById('contactNotes').value = contact.notes || '';
-          
-          // Populate tags
-          const tagsContainer = document.getElementById('contactTagsContainer');
-          tagsContainer.innerHTML = renderContactTags(contact.tags || []);
-          
-          // Populate tag dropdown
-          const dropdown = document.getElementById('contactTagDropdown');
-          dropdown.innerHTML = availableTags.map(tagInfo => {
-            const tag = tagInfo.tag;
-            const isSelected = (contact.tags || []).includes(tag);
-            return '<div class="tag-option ' + (isSelected ? 'selected' : '') + '" ' + safeOnclick('toggleContactTag', tag) + '>' +
-                   tag + (isSelected ? ' ✓' : '') +
-                   '</div>';
-          }).join('');
         }
         
         function toggleContactTagDropdown() {
@@ -4000,19 +4319,37 @@ app.get('/', (req, res) => {
         async function saveContactDetails() {
           if (!currentContactData) return;
           
-          const name = document.getElementById('contactName').value;
+          // Collect all form data
+          const firstName = document.getElementById('contactFirstName').value;
+          const lastName = document.getElementById('contactLastName').value;
+          const name = (firstName + ' ' + lastName).trim();
+          const phone = document.getElementById('contactPhone').value;
+          const company = document.getElementById('contactCompany').value;
+          const position = document.getElementById('contactPosition').value;
+          const website = document.getElementById('contactWebsite').value;
+          const industry = document.getElementById('contactIndustry').value;
+          const status = document.getElementById('contactStatus').value;
+          const priority = document.getElementById('contactPriority').value;
           const notes = document.getElementById('contactNotes').value;
           const tags = currentContactData.tags || [];
           
           try {
-            const response = await fetch('/api/contacts/' + currentContactData.id + '/tags', {
+            const response = await fetch('/api/contacts/' + currentContactData.id + '/update', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json'
               },
               body: JSON.stringify({
-                tags: tags,
-                notes: notes
+                name: name,
+                phone: phone,
+                company: company,
+                position: position,
+                website: website,
+                industry: industry,
+                status: status,
+                priority: priority,
+                notes: notes,
+                tags: tags
               })
             });
             
