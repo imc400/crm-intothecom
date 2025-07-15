@@ -1884,8 +1884,11 @@ app.get('/', (req, res) => {
                 </div>
                 <div class="calendar-grid">
                   <div class="auth-prompt">
-                    <h3>Verificando conexión...</h3>
-                    <p>Comprobando estado de Google Calendar</p>
+                    <h3>Conecta tu Google Calendar</h3>
+                    <p>Autoriza el acceso a tu calendario para ver y gestionar eventos</p>
+                    <button class="btn btn-primary" onclick="authenticateGoogle()" style="margin-top: 20px;">
+                      Conectar Google Calendar
+                    </button>
                   </div>
                 </div>
               </div>
@@ -2091,7 +2094,7 @@ app.get('/', (req, res) => {
               updateAuthButton(true);
               // Load calendar events automatically if authenticated
               const activeTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab');
-              if (activeTab === 'calendar') {
+              if (activeTab === 'calendar' || !activeTab) {
                 loadCalendarEvents('week');
               }
             } else {
