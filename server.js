@@ -1623,6 +1623,7 @@ app.get('/', (req, res) => {
           margin-left: 280px;
           padding: 40px;
           min-height: 100vh;
+          overflow-x: hidden;
         }
         
         .header {
@@ -1786,6 +1787,10 @@ app.get('/', (req, res) => {
           min-height: 600px;
           position: relative;
           overflow: hidden;
+        }
+        
+        #funnel-tab {
+          overflow: visible;
         }
         
         .tab-content::before {
@@ -3029,6 +3034,8 @@ app.get('/', (req, res) => {
         /* Funnel Kanban Styles */
         .funnel-container {
           padding: 0;
+          width: 100%;
+          overflow: hidden;
         }
         
         .funnel-header {
@@ -3101,6 +3108,7 @@ app.get('/', (req, res) => {
           overflow-y: hidden;
           padding: 8px 8px 24px 8px;
           min-height: 70vh;
+          width: 100%;
           scrollbar-width: thin;
           scrollbar-color: rgba(255, 107, 0, 0.3) rgba(255, 255, 255, 0.1);
         }
@@ -3125,6 +3133,8 @@ app.get('/', (req, res) => {
         
         .kanban-column {
           min-width: 320px;
+          max-width: 320px;
+          flex: 0 0 320px;
           background: var(--glass-bg);
           backdrop-filter: blur(20px);
           border: 1px solid var(--glass-border);
