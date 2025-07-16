@@ -3098,8 +3098,29 @@ app.get('/', (req, res) => {
           display: flex;
           gap: 24px;
           overflow-x: auto;
-          padding: 8px;
-          min-height: 600px;
+          overflow-y: hidden;
+          padding: 8px 8px 24px 8px;
+          min-height: 70vh;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(255, 107, 0, 0.3) rgba(255, 255, 255, 0.1);
+        }
+        
+        .kanban-board::-webkit-scrollbar {
+          height: 8px;
+        }
+        
+        .kanban-board::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 4px;
+        }
+        
+        .kanban-board::-webkit-scrollbar-thumb {
+          background: rgba(255, 107, 0, 0.3);
+          border-radius: 4px;
+        }
+        
+        .kanban-board::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 107, 0, 0.5);
         }
         
         .kanban-column {
@@ -3182,6 +3203,13 @@ app.get('/', (req, res) => {
           display: flex;
           flex-direction: column;
           gap: 12px;
+          transition: all 0.3s ease;
+        }
+        
+        .kanban-cards.drag-over {
+          background: rgba(255, 107, 0, 0.05);
+          border: 2px dashed rgba(255, 107, 0, 0.3);
+          border-radius: 12px;
         }
         
         .kanban-card {
@@ -3259,6 +3287,18 @@ app.get('/', (req, res) => {
           border-color: #FF6B00;
           background: rgba(255, 107, 0, 0.05);
           color: #FF6B00;
+        }
+        
+        .empty-column-message {
+          text-align: center;
+          padding: 40px 20px;
+          color: var(--text-secondary);
+          font-size: 14px;
+          font-style: italic;
+          border: 2px dashed rgba(255, 255, 255, 0.1);
+          border-radius: 12px;
+          margin: 20px 0;
+          background: rgba(255, 255, 255, 0.02);
         }
         
         /* Enhanced Calendar Components */
@@ -3980,21 +4020,6 @@ app.get('/', (req, res) => {
                     <button class="btn btn-primary btn-sm" onclick="refreshFunnelData()">
                       Actualizar
                     </button>
-                  </div>
-                </div>
-                
-                <div class="funnel-metrics">
-                  <div class="metric-card">
-                    <span class="metric-value" id="totalLeads">0</span>
-                    <span class="metric-label">Total Leads</span>
-                  </div>
-                  <div class="metric-card">
-                    <span class="metric-value" id="conversionRate">0%</span>
-                    <span class="metric-label">Tasa Conversión</span>
-                  </div>
-                  <div class="metric-card">
-                    <span class="metric-value" id="avgStageTime">0d</span>
-                    <span class="metric-label">Tiempo Promedio</span>
                   </div>
                 </div>
                 
@@ -6705,7 +6730,6 @@ app.get('/', (req, res) => {
                 });
               }
               
-              calculateFunnelMetrics();
               renderFunnelBoard();
             }
           } catch (error) {
@@ -6713,23 +6737,6 @@ app.get('/', (req, res) => {
           }
         }
 
-        function calculateFunnelMetrics() {
-          const totalContacts = funnelData.contacts.length;
-          const closedWon = funnelData.contacts.filter(c => 
-            c.tags && c.tags.includes('Closed Won')
-          ).length;
-          
-          funnelData.metrics = {
-            totalLeads: totalContacts,
-            conversionRate: totalContacts > 0 ? Math.round((closedWon / totalContacts) * 100) : 0,
-            avgStageTime: 7 // Placeholder - could be calculated from contact history
-          };
-          
-          // Update metrics display
-          document.getElementById('totalLeads').textContent = funnelData.metrics.totalLeads;
-          document.getElementById('conversionRate').textContent = funnelData.metrics.conversionRate + '%';
-          document.getElementById('avgStageTime').textContent = funnelData.metrics.avgStageTime + 'd';
-        }
 
         function renderFunnelBoard() {
           const kanbanBoard = document.getElementById('kanbanBoard');
@@ -6754,13 +6761,13 @@ app.get('/', (req, res) => {
                     (!stage.fixed ? '<button class="kanban-column-remove" onclick="removeModuleFromPipeline(\'' + stage.tag + '\')" title="Eliminar módulo">×</button>' : '') +
                   '</div>' +
                 '</div>' +
-                '<div class="kanban-cards" id="cards-' + stage.tag.replace(/\s+/g, '-') + '">' +
-                  stageContacts.map(contact => renderKanbanCard(contact)).join('') +
-                '</div>' +
-                '<div class="kanban-drop-zone" ' +
+                '<div class="kanban-cards" id="cards-' + stage.tag.replace(/\s+/g, '-') + '" ' +
                      'ondrop="dropCard(event, \'' + stage.tag + '\')" ' +
-                     'ondragover="allowDrop(event)">' +
-                  'Arrastra aquí' +
+                     'ondragover="allowDrop(event)" ' +
+                     'ondragleave="dragLeave(event)">' +
+                  stageContacts.map(contact => renderKanbanCard(contact)).join('') +
+                  (stageContacts.length === 0 ? 
+                    '<div class="empty-column-message">Arrastra contactos aquí</div>' : '') +
                 '</div>' +
               '</div>';
             
@@ -6791,19 +6798,52 @@ app.get('/', (req, res) => {
         function dragStart(event, email) {
           event.dataTransfer.setData('text/plain', email);
           event.target.style.opacity = '0.5';
+          event.target.style.transform = 'rotate(5deg)';
+          
+          // Add visual feedback to all drop zones
+          document.querySelectorAll('.kanban-cards').forEach(container => {
+            container.style.transition = 'all 0.3s ease';
+          });
         }
 
         function allowDrop(event) {
           event.preventDefault();
-          event.target.classList.add('drag-over');
+          event.stopPropagation();
+          
+          // Find the kanban-cards container
+          const cardsContainer = event.target.closest('.kanban-cards');
+          if (cardsContainer) {
+            cardsContainer.classList.add('drag-over');
+          }
+        }
+
+        function dragLeave(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          
+          // Only remove drag-over if we're actually leaving the container
+          const cardsContainer = event.target.closest('.kanban-cards');
+          if (cardsContainer && !cardsContainer.contains(event.relatedTarget)) {
+            cardsContainer.classList.remove('drag-over');
+          }
         }
 
         function dropCard(event, newStage) {
           event.preventDefault();
+          event.stopPropagation();
+          
           const email = event.dataTransfer.getData('text/plain');
           
-          // Remove drag-over class
-          event.target.classList.remove('drag-over');
+          // Remove drag-over class from all containers
+          document.querySelectorAll('.kanban-cards').forEach(container => {
+            container.classList.remove('drag-over');
+          });
+          
+          // Reset card styles
+          document.querySelectorAll('.kanban-card').forEach(card => {
+            card.style.opacity = '1';
+            card.style.transform = 'none';
+          });
           
           // Find contact and update stage
           const contact = funnelData.contacts.find(c => c.email === email);
@@ -6836,7 +6876,6 @@ app.get('/', (req, res) => {
               contact.tags = updatedTags;
               
               // Refresh board
-              calculateFunnelMetrics();
               renderFunnelBoard();
             } else {
               alert('Error actualizando etapa del contacto');
@@ -6942,7 +6981,6 @@ app.get('/', (req, res) => {
           
           // Refresh funnel display
           renderFunnelBoard();
-          calculateFunnelMetrics();
           
           closeAddModuleModal();
         }
@@ -6986,7 +7024,6 @@ app.get('/', (req, res) => {
             funnelStages = funnelStages.filter(stage => stage.tag !== stageTag);
             savePipelineConfiguration();
             renderFunnelBoard();
-            calculateFunnelMetrics();
           }
         }
 
