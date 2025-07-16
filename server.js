@@ -3981,7 +3981,7 @@ app.get('/', (req, res) => {
                 </div>
                 
                 <div class="filter-controls">
-                  <input type="text" id="contactSearchInput" placeholder="Buscar por nombre o email..." 
+                  <input type="text" id="contactSearchInput" placeholder="Buscar por nombre, email o empresa..." 
                          class="filter-input" onkeyup="filterContacts()" />
                   
                   <div class="tag-filter-container">
@@ -6486,7 +6486,8 @@ app.get('/', (req, res) => {
           if (searchText) {
             filteredContacts = filteredContacts.filter(contact => 
               contact.email.toLowerCase().includes(searchText) ||
-              (contact.name && contact.name.toLowerCase().includes(searchText))
+              (contact.name && contact.name.toLowerCase().includes(searchText)) ||
+              (contact.company && contact.company.toLowerCase().includes(searchText))
             );
           }
           
