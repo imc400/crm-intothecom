@@ -3210,10 +3210,33 @@ app.get('/', (req, res) => {
         .kanban-cards {
           flex: 1;
           min-height: 400px;
+          max-height: 60vh;
           display: flex;
           flex-direction: column;
           gap: 12px;
           transition: all 0.3s ease;
+          overflow-y: auto;
+          overflow-x: hidden;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(255, 107, 0, 0.3) rgba(255, 255, 255, 0.1);
+        }
+        
+        .kanban-cards::-webkit-scrollbar {
+          width: 6px;
+        }
+        
+        .kanban-cards::-webkit-scrollbar-track {
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 3px;
+        }
+        
+        .kanban-cards::-webkit-scrollbar-thumb {
+          background: rgba(255, 107, 0, 0.3);
+          border-radius: 3px;
+        }
+        
+        .kanban-cards::-webkit-scrollbar-thumb:hover {
+          background: rgba(255, 107, 0, 0.5);
         }
         
         .kanban-cards.drag-over {
