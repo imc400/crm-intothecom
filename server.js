@@ -6332,6 +6332,9 @@ app.get('/', (req, res) => {
           contactsList.innerHTML = '<div class="status loading">Cargando contactos...</div>';
           
           try {
+            // Load tags first to ensure colors are available
+            await loadTagsAndContacts();
+            
             const response = await fetch('/api/contacts');
             const result = await response.json();
             
@@ -6428,8 +6431,9 @@ app.get('/', (req, res) => {
             if (result.success) {
               allContactsData = result.data;
               
-              // Load available tags for filter dropdown
+              // Load available tags for filter dropdown and colors
               await loadTagsForFilter();
+              await loadTagsAndContacts();
               
               // Apply current filters
               filterContacts();
@@ -6460,8 +6464,17 @@ app.get('/', (req, res) => {
                 tagFilter.appendChild(option);
               });
               
-              // Store tags data for editing
+              // Store tags data for editing and color lookup
               window.availableTagsData = result.data;
+              availableTags = result.data;
+              
+              // Update tag colors cache
+              tagColorsCache = {};
+              result.data.forEach(tagInfo => {
+                if (tagInfo.tag && tagInfo.color) {
+                  tagColorsCache[tagInfo.tag] = tagInfo.color;
+                }
+              });
               
               // Add "Untagged" option
               const untaggedOption = document.createElement('option');
