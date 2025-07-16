@@ -3931,9 +3931,6 @@ app.get('/', (req, res) => {
               <button class="btn btn-secondary" onclick="refreshData()">
                 Actualizar
               </button>
-              <button class="btn btn-secondary" onclick="checkAuthStatus()">
-                Verificar Auth
-              </button>
               <div id="authButton">
                 <button class="btn btn-primary" onclick="authenticateGoogle()">
                   Conectar Google
