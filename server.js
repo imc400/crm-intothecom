@@ -3132,6 +3132,12 @@ app.get('/', (req, res) => {
           gap: 8px;
         }
         
+        .kanban-column-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        
         .kanban-column-count {
           background: rgba(255, 107, 0, 0.1);
           color: #FF6B00;
@@ -3139,6 +3145,35 @@ app.get('/', (req, res) => {
           border-radius: 12px;
           font-size: 14px;
           font-weight: 600;
+        }
+        
+        .kanban-column-remove {
+          background: rgba(239, 68, 68, 0.1);
+          color: #EF4444;
+          border: none;
+          border-radius: 6px;
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          font-size: 16px;
+          font-weight: 600;
+          transition: all 0.2s ease;
+        }
+        
+        .kanban-column-remove:hover {
+          background: rgba(239, 68, 68, 0.2);
+          transform: scale(1.1);
+        }
+        
+        .module-preview {
+          margin-top: 16px;
+          border: 2px dashed var(--border-light);
+          border-radius: 12px;
+          padding: 16px;
+          background: rgba(255, 255, 255, 0.02);
         }
         
         .kanban-cards {
@@ -3939,8 +3974,8 @@ app.get('/', (req, res) => {
                 <div class="funnel-header">
                   <h3>Pipeline de Ventas</h3>
                   <div class="funnel-actions">
-                    <button class="btn btn-outline btn-sm" onclick="configureFunnelStages()">
-                      Configurar Etapas
+                    <button class="btn btn-outline btn-sm" onclick="showAddModuleModal()">
+                      Agregar Módulo
                     </button>
                     <button class="btn btn-primary btn-sm" onclick="refreshFunnelData()">
                       Actualizar
@@ -4258,6 +4293,50 @@ app.get('/', (req, res) => {
           <div class="modal-footer">
             <button class="btn-cancel" onclick="closeEventModal()">Cancelar</button>
             <button class="btn-save" onclick="saveEventChanges()">Guardar Cambios</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add Pipeline Module Modal -->
+      <div id="addModuleModal" class="modal">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Agregar Módulo al Pipeline</h2>
+            <span class="close-btn" onclick="closeAddModuleModal()">&times;</span>
+          </div>
+          
+          <div class="modal-body">
+            <div class="form-group">
+              <label class="form-label">Selecciona una etiqueta existente</label>
+              <select id="moduleTagSelect" class="form-select">
+                <option value="">Selecciona una etiqueta...</option>
+                <!-- Options will be populated dynamically -->
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label class="form-label">Vista previa del módulo</label>
+              <div class="module-preview" id="modulePreview" style="display: none;">
+                <div class="kanban-column" style="min-width: 280px; max-width: 280px;">
+                  <div class="kanban-column-header">
+                    <div class="kanban-column-title" id="previewTitle">
+                      Módulo
+                    </div>
+                    <div class="kanban-column-count">0</div>
+                  </div>
+                  <div class="kanban-cards" style="min-height: 100px;">
+                    <div style="text-align: center; padding: 20px; color: #718096;">
+                      Los contactos con esta etiqueta aparecerán aquí
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="modal-footer">
+            <button class="btn-cancel" onclick="closeAddModuleModal()">Cancelar</button>
+            <button class="btn-save" onclick="addModuleToPipeline()">Agregar Módulo</button>
           </div>
         </div>
       </div>
@@ -6583,14 +6662,11 @@ app.get('/', (req, res) => {
 
         // Funnel Kanban Functions
         let funnelStages = [
-          { name: 'Sin etiqueta', tag: 'Untagged', color: '#718096' },
-          { name: 'New Lead', tag: 'New Lead', color: '#FF6B00' },
-          { name: 'Qualified', tag: 'Qualified', color: '#10B981' },
-          { name: 'Proposal', tag: 'Proposal', color: '#3B82F6' },
-          { name: 'Negotiation', tag: 'Negotiation', color: '#F59E0B' },
-          { name: 'Closed Won', tag: 'Closed Won', color: '#059669' },
-          { name: 'Closed Lost', tag: 'Closed Lost', color: '#EF4444' }
+          { name: 'Sin etiqueta', tag: 'Untagged', color: '#718096', fixed: true }
         ];
+        
+        // Available tags from database for pipeline configuration
+        let availableTagsForPipeline = [];
         
         let funnelData = {
           contacts: [],
@@ -6603,6 +6679,9 @@ app.get('/', (req, res) => {
 
         async function loadFunnelData() {
           try {
+            // Load pipeline configuration from localStorage
+            loadPipelineConfiguration();
+            
             // Load contacts
             const contactsResponse = await fetch('/api/contacts');
             const contactsResult = await contactsResponse.json();
@@ -6610,12 +6689,12 @@ app.get('/', (req, res) => {
             if (contactsResult.success) {
               funnelData.contacts = contactsResult.data;
               
-              // Load available tags to sync stages
+              // Load available tags to sync colors
               const tagsResponse = await fetch('/api/tags');
               const tagsResult = await tagsResponse.json();
               
               if (tagsResult.success) {
-                // Update stages with actual tags from database
+                // Update stages with actual colors from database
                 const dbTags = tagsResult.data;
                 funnelStages = funnelStages.map(stage => {
                   const dbTag = dbTags.find(t => t.tag === stage.tag);
@@ -6623,17 +6702,6 @@ app.get('/', (req, res) => {
                     return { ...stage, color: dbTag.color };
                   }
                   return stage;
-                });
-                
-                // Add any additional tags from database as new stages
-                dbTags.forEach(dbTag => {
-                  if (!funnelStages.find(s => s.tag === dbTag.tag)) {
-                    funnelStages.push({
-                      name: dbTag.tag,
-                      tag: dbTag.tag,
-                      color: dbTag.color
-                    });
-                  }
                 });
               }
               
@@ -6681,7 +6749,10 @@ app.get('/', (req, res) => {
                   '<div class="kanban-column-title" style="color: ' + stage.color + ';">' +
                     stage.name +
                   '</div>' +
-                  '<div class="kanban-column-count">' + stageContacts.length + '</div>' +
+                  '<div class="kanban-column-actions">' +
+                    '<div class="kanban-column-count">' + stageContacts.length + '</div>' +
+                    (!stage.fixed ? '<button class="kanban-column-remove" onclick="removeModuleFromPipeline(\'' + stage.tag + '\')" title="Eliminar módulo">×</button>' : '') +
+                  '</div>' +
                 '</div>' +
                 '<div class="kanban-cards" id="cards-' + stage.tag.replace(/\s+/g, '-') + '">' +
                   stageContacts.map(contact => renderKanbanCard(contact)).join('') +
@@ -6776,8 +6847,147 @@ app.get('/', (req, res) => {
           }
         }
 
-        function configureFunnelStages() {
-          alert('Configuración de etapas - Próximamente');
+        // Pipeline Module Management Functions
+        function showAddModuleModal() {
+          // Load available tags first
+          loadAvailableTagsForPipeline();
+          document.getElementById('addModuleModal').style.display = 'block';
+        }
+
+        function closeAddModuleModal() {
+          document.getElementById('addModuleModal').style.display = 'none';
+          document.getElementById('moduleTagSelect').value = '';
+          document.getElementById('modulePreview').style.display = 'none';
+        }
+
+        async function loadAvailableTagsForPipeline() {
+          try {
+            const response = await fetch('/api/tags');
+            const result = await response.json();
+            
+            if (result.success) {
+              availableTagsForPipeline = result.data;
+              populateModuleTagSelect();
+            }
+          } catch (error) {
+            console.error('Error loading tags for pipeline:', error);
+          }
+        }
+
+        function populateModuleTagSelect() {
+          const select = document.getElementById('moduleTagSelect');
+          select.innerHTML = '<option value="">Selecciona una etiqueta...</option>';
+          
+          // Filter out tags that are already in the pipeline
+          const usedTags = funnelStages.map(stage => stage.tag);
+          const availableTags = availableTagsForPipeline.filter(tag => 
+            !usedTags.includes(tag.tag)
+          );
+          
+          availableTags.forEach(tag => {
+            const option = document.createElement('option');
+            option.value = tag.tag;
+            option.textContent = tag.tag + ' (' + tag.count + ' contactos)';
+            option.dataset.color = tag.color;
+            select.appendChild(option);
+          });
+          
+          // Add event listener for preview
+          select.addEventListener('change', showModulePreview);
+        }
+
+        function showModulePreview() {
+          const select = document.getElementById('moduleTagSelect');
+          const selectedTag = select.value;
+          const previewDiv = document.getElementById('modulePreview');
+          const previewTitle = document.getElementById('previewTitle');
+          
+          if (selectedTag) {
+            const tagData = availableTagsForPipeline.find(tag => tag.tag === selectedTag);
+            if (tagData) {
+              previewTitle.textContent = tagData.tag;
+              previewTitle.style.color = tagData.color;
+              previewDiv.style.display = 'block';
+            }
+          } else {
+            previewDiv.style.display = 'none';
+          }
+        }
+
+        function addModuleToPipeline() {
+          const select = document.getElementById('moduleTagSelect');
+          const selectedTag = select.value;
+          
+          if (!selectedTag) {
+            alert('Por favor selecciona una etiqueta');
+            return;
+          }
+          
+          const tagData = availableTagsForPipeline.find(tag => tag.tag === selectedTag);
+          if (!tagData) {
+            alert('Error: etiqueta no encontrada');
+            return;
+          }
+          
+          // Add new module to pipeline
+          funnelStages.push({
+            name: tagData.tag,
+            tag: tagData.tag,
+            color: tagData.color,
+            fixed: false
+          });
+          
+          // Save pipeline configuration
+          savePipelineConfiguration();
+          
+          // Refresh funnel display
+          renderFunnelBoard();
+          calculateFunnelMetrics();
+          
+          closeAddModuleModal();
+        }
+
+        function savePipelineConfiguration() {
+          // Save to localStorage for persistence
+          const pipelineConfig = funnelStages.map(stage => ({
+            name: stage.name,
+            tag: stage.tag,
+            color: stage.color,
+            fixed: stage.fixed
+          }));
+          
+          localStorage.setItem('funnelPipelineConfig', JSON.stringify(pipelineConfig));
+        }
+
+        function loadPipelineConfiguration() {
+          try {
+            const saved = localStorage.getItem('funnelPipelineConfig');
+            if (saved) {
+              const config = JSON.parse(saved);
+              // Only load non-fixed stages (keep "Sin etiqueta" always first)
+              const nonFixedStages = config.filter(stage => !stage.fixed);
+              funnelStages = [
+                { name: 'Sin etiqueta', tag: 'Untagged', color: '#718096', fixed: true },
+                ...nonFixedStages
+              ];
+            }
+          } catch (error) {
+            console.error('Error loading pipeline configuration:', error);
+          }
+        }
+
+        function removeModuleFromPipeline(stageTag) {
+          if (stageTag === 'Untagged') {
+            alert('No se puede eliminar la columna "Sin etiqueta"');
+            return;
+          }
+          
+          if (confirm('¿Estás seguro de que quieres eliminar este módulo del pipeline?')) {
+            funnelStages = funnelStages.filter(stage => stage.tag !== stageTag);
+            savePipelineConfiguration();
+            renderFunnelBoard();
+            calculateFunnelMetrics();
+          }
         }
 
         function refreshFunnelData() {
