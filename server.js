@@ -7561,9 +7561,12 @@ app.get('/', (req, res) => {
         let attendeeTags = {}; // Para almacenar etiquetas por email
         
         // Función para abrir el modal de crear evento
-        function openCreateEventModal(prefillDate = null, prefillTime = null) {
+        async function openCreateEventModal(prefillDate = null, prefillTime = null) {
           document.getElementById('createEventModal').style.display = 'block';
-          loadTagsForEvent();
+          
+          // Cargar etiquetas antes de mostrar el modal
+          await loadTagsForEvent();
+          
           populateSimplifiedDateTimeOptions(prefillDate, prefillTime);
           
           // Resetear duración por defecto
@@ -7618,6 +7621,19 @@ app.get('/', (req, res) => {
           updateAttendeesList();
         }
         
+        // Función para generar opciones de etiquetas dinámicas
+        function generateTagOptions(selectedTag) {
+          if (!availableTags || availableTags.length === 0) {
+            return '<option value="New Lead" selected>New Lead</option>';
+          }
+          
+          return availableTags.map(tagInfo => {
+            const tag = tagInfo.tag;
+            const isSelected = tag === selectedTag;
+            return '<option value="' + tag + '"' + (isSelected ? ' selected' : '') + '>' + tag + '</option>';
+          }).join('');
+        }
+
         // Función para actualizar etiqueta de asistente
         function updateAttendeeTag(email, tag) {
           if (tag) {
@@ -7638,11 +7654,11 @@ app.get('/', (req, res) => {
           
           attendeesList.innerHTML = eventAttendees.map(email => {
             const isExternal = !email.includes('@intothecom.com') && !email.includes('@intothecom');
-            const currentTag = attendeeTags[email] || 'New Lead';
+            const currentTag = attendeeTags[email] || (availableTags.length > 0 ? availableTags[0].tag : 'New Lead');
             
             // Asegurar que los externos tengan etiqueta por defecto
             if (isExternal && !attendeeTags[email]) {
-              attendeeTags[email] = 'New Lead';
+              attendeeTags[email] = availableTags.length > 0 ? availableTags[0].tag : 'New Lead';
             }
             
             return '<div class="attendee-item">' +
@@ -7651,9 +7667,7 @@ app.get('/', (req, res) => {
                 (isExternal ? 
                   '<div class="attendee-tags">' +
                     '<select class="attendee-tag-select" onchange="updateAttendeeTag(\'' + email + '\', this.value)">' +
-                      '<option value="New Lead"' + (currentTag === 'New Lead' ? ' selected' : '') + '>New Lead</option>' +
-                      '<option value="Cliente"' + (currentTag === 'Cliente' ? ' selected' : '') + '>Cliente</option>' +
-                      '<option value="Prospecto"' + (currentTag === 'Prospecto' ? ' selected' : '') + '>Prospecto</option>' +
+                      generateTagOptions(currentTag) +
                     '</select>' +
                   '</div>' : 
                   '<span class="internal-badge">Interno</span>'
@@ -7820,11 +7834,39 @@ app.get('/', (req, res) => {
           });
         }
         
-        // Función para cargar etiquetas disponibles (simplificada)
+        // Función para cargar etiquetas disponibles para eventos
         async function loadTagsForEvent() {
-          // Ya no necesitamos cargar etiquetas manualmente
-          // El etiquetado será automático para correos externos
-          console.log('Tags will be applied automatically to external attendees');
+          try {
+            const response = await fetch('/api/tags');
+            const result = await response.json();
+            
+            if (result.success && result.data && result.data.length > 0) {
+              availableTags = result.data;
+              
+              // Actualizar cache de colores
+              tagColorsCache = {};
+              result.data.forEach(tagInfo => {
+                if (tagInfo.tag && tagInfo.color) {
+                  tagColorsCache[tagInfo.tag] = tagInfo.color;
+                }
+              });
+            } else {
+              // Fallback a etiquetas por defecto
+              availableTags = [
+                { tag: 'New Lead', color: '#FF6B00', count: 0 },
+                { tag: 'Cliente', color: '#48bb78', count: 0 },
+                { tag: 'Prospecto', color: '#ed8936', count: 0 }
+              ];
+            }
+          } catch (error) {
+            console.error('Error loading tags for event:', error);
+            // Fallback a etiquetas por defecto
+            availableTags = [
+              { tag: 'New Lead', color: '#FF6B00', count: 0 },
+              { tag: 'Cliente', color: '#48bb78', count: 0 },
+              { tag: 'Prospecto', color: '#ed8936', count: 0 }
+            ];
+          }
         }
         
         // Función para crear el evento
@@ -7852,7 +7894,7 @@ app.get('/', (req, res) => {
             description: formData.get('description'),
             start: startDate.toISOString(),
             end: endDate.toISOString(),
-            attendees: eventAttendees,
+            attendees: eventAttendees.map(email => email.trim()),
             notes: formData.get('notes')
           };
           
@@ -7864,6 +7906,12 @@ app.get('/', (req, res) => {
               },
               body: JSON.stringify(eventData)
             });
+            
+            // Verificar si la respuesta HTTP es exitosa
+            if (!response.ok) {
+              const errorData = await response.json().catch(() => ({}));
+              throw new Error(`HTTP ${response.status}: ${errorData.error || 'Error del servidor'}`);
+            }
             
             const result = await response.json();
             
@@ -7881,10 +7929,14 @@ app.get('/', (req, res) => {
                 );
                 
                 if (externalAttendees.length > 0) {
-                  syncAttendeeTags(result.data.id, externalAttendees, ['New Lead']).catch(error => {
-                    console.error('Error syncing attendee tags:', error);
-                    // No mostrar error al usuario, es proceso en background
-                  });
+                  // Usar etiquetas asignadas individualmente para cada asistente
+                  for (const email of externalAttendees) {
+                    const tag = attendeeTags[email] || (availableTags.length > 0 ? availableTags[0].tag : 'New Lead');
+                    syncAttendeeTags(result.data.id, [email], [tag]).catch(error => {
+                      console.error('Error syncing attendee tags for', email, ':', error);
+                      // No mostrar error al usuario, es proceso en background
+                    });
+                  }
                 }
               }
               
@@ -7895,7 +7947,15 @@ app.get('/', (req, res) => {
             }
           } catch (error) {
             console.error('Error creating event:', error);
-            alert('Error de conexión al crear la reunión');
+            
+            // Mostrar mensaje específico según el tipo de error
+            if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
+              alert('Error de conexión. Verifica tu conexión a internet e intenta nuevamente.');
+            } else if (error.message.includes('401')) {
+              alert('Error de autenticación. Por favor reconecta tu cuenta de Google Calendar.');
+            } else {
+              alert('Error al crear la reunión: ' + (error.message || 'Error desconocido'));
+            }
           }
         }
         
