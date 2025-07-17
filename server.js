@@ -2916,6 +2916,9 @@ app.get('/', (req, res) => {
           border-radius: 6px;
           padding: 15px;
           margin-bottom: 15px;
+          min-height: 50px;
+          max-height: 150px;
+          overflow-y: auto;
         }
         
         .form-control {
@@ -2956,11 +2959,6 @@ app.get('/', (req, res) => {
           flex: 1;
         }
         
-        .attendees-list {
-          min-height: 50px;
-          max-height: 150px;
-          overflow-y: auto;
-        }
         
         .attendee-item {
           display: flex;
@@ -7444,6 +7442,13 @@ app.get('/', (req, res) => {
           // Resetear duración por defecto
           document.getElementById('eventDuration').value = '30';
           updateDurationButtons();
+          
+          // Inicializar lista de asistentes vacía
+          eventAttendees = [];
+          updateAttendeesList();
+          
+          // Inicializar event listeners
+          setTimeout(initializeEventListeners, 100);
         }
         
         // Función para cerrar el modal
@@ -7767,8 +7772,7 @@ app.get('/', (req, res) => {
         
         // Función para cargar eventos con la vista actual
         function loadEventsWithCurrentView() {
-          const dateParam = getLocalDateString(currentDate);
-          loadEvents(activeView, dateParam);
+          loadCalendarEvents(activeView, true); // true para forzar refresh
         }
         
         // Función para manejar click en slots de la vista semana
@@ -7794,17 +7798,23 @@ app.get('/', (req, res) => {
         }
         
         // Permitir Enter para agregar asistente
-        document.addEventListener('DOMContentLoaded', function() {
+        function initializeEventListeners() {
+          // Inicializar cuando se abra el modal
           const attendeeInput = document.getElementById('attendeeEmail');
           if (attendeeInput) {
-            attendeeInput.addEventListener('keypress', function(e) {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                addAttendee();
-              }
-            });
+            // Remover listener anterior si existe
+            attendeeInput.removeEventListener('keypress', handleAttendeeKeyPress);
+            // Agregar nuevo listener
+            attendeeInput.addEventListener('keypress', handleAttendeeKeyPress);
           }
-        });
+        }
+        
+        function handleAttendeeKeyPress(e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            addAttendee();
+          }
+        }
         
       </script>
       
