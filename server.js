@@ -2080,6 +2080,26 @@ app.get('/', (req, res) => {
           position: relative;
           border-right: 1px solid #e2e8f0;
           transition: all 0.3s ease;
+          cursor: pointer;
+        }
+        
+        .day-column:hover {
+          background: linear-gradient(135deg, 
+            rgba(255, 107, 0, 0.08) 0%, 
+            rgba(255, 133, 51, 0.04) 100%);
+        }
+        
+        .day-column:hover:not(:has(.event-block))::after {
+          content: '+ Crear reunión';
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          font-size: 12px;
+          color: #FF6B00;
+          font-weight: 500;
+          opacity: 0.8;
+          pointer-events: none;
         }
         
         .day-column.current-day-column {
@@ -3012,6 +3032,76 @@ app.get('/', (req, res) => {
         .tag-checkbox:not(:checked) + .tag-badge {
           background: #e2e8f0;
           color: #718096;
+        }
+        
+        .datetime-container {
+          background: #f8fafc;
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          padding: 20px;
+          margin-top: 10px;
+        }
+        
+        .datetime-row {
+          display: flex;
+          gap: 20px;
+          margin-bottom: 15px;
+        }
+        
+        .datetime-group {
+          flex: 1;
+        }
+        
+        .datetime-label {
+          display: block;
+          font-size: 12px;
+          font-weight: 600;
+          color: #4a5568;
+          margin-bottom: 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        
+        .datetime-inputs {
+          display: flex;
+          gap: 10px;
+        }
+        
+        .datetime-date {
+          flex: 1;
+        }
+        
+        .datetime-time {
+          flex: 1;
+        }
+        
+        .datetime-quick-options {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        
+        .quick-duration-btn {
+          padding: 6px 12px;
+          background: transparent;
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          font-size: 12px;
+          color: #4a5568;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        
+        .quick-duration-btn:hover {
+          background: #e2e8f0;
+          border-color: #FF6B00;
+          color: #FF6B00;
+        }
+        
+        .quick-duration-btn.active {
+          background: #FF6B00;
+          border-color: #FF6B00;
+          color: white;
         }
         
         .attendee-item {
@@ -6430,7 +6520,7 @@ app.get('/', (req, res) => {
             for (let day = 0; day < 7; day++) {
               const isToday = isCurrentWeek && day === todayDay;
               const dayColumnClass = isToday ? 'day-column current-day-column' : 'day-column';
-              html += '<div class="' + dayColumnClass + '" data-day="' + day + '" data-hour="' + currentHour + '">';
+              html += '<div class="' + dayColumnClass + '" data-day="' + day + '" data-hour="' + currentHour + '" onclick="handleWeekSlotClick(' + day + ', ' + currentHour + ')">';
               
               // Find events for this day and time
               const dayEvents = weekEvents.filter(event => {
@@ -7350,22 +7440,38 @@ app.get('/', (req, res) => {
         let availableTagsForEvent = [];
         
         // Función para abrir el modal de crear evento
-        function openCreateEventModal() {
+        function openCreateEventModal(prefillDate = null, prefillTime = null) {
           document.getElementById('createEventModal').style.display = 'block';
           loadTagsForEvent();
+          populateTimeOptions();
           
           // Inicializar fechas por defecto
           const now = new Date();
-          const startDate = formatDateForInput(now);
-          const endDate = formatDateForInput(now);
+          let startDate, startTime, endTime;
           
-          document.getElementById('eventStartDate').value = startDate;
-          document.getElementById('eventEndDate').value = endDate;
+          if (prefillDate) {
+            startDate = prefillDate;
+            document.getElementById('eventStartDate').value = startDate;
+            document.getElementById('eventEndDate').value = startDate;
+          } else {
+            startDate = formatDateForInput(now);
+            document.getElementById('eventStartDate').value = startDate;
+            document.getElementById('eventEndDate').value = startDate;
+          }
           
-          // Hora por defecto (próxima hora)
-          const nextHour = new Date(now.getTime() + 60 * 60 * 1000);
-          const startTime = formatTimeForInput(nextHour);
-          const endTime = formatTimeForInput(new Date(nextHour.getTime() + 60 * 60 * 1000));
+          if (prefillTime) {
+            startTime = prefillTime;
+            const endDateTime = new Date('2000-01-01T' + prefillTime + ':00');
+            endDateTime.setMinutes(endDateTime.getMinutes() + 60);
+            endTime = formatTimeForSelect(endDateTime);
+          } else {
+            // Hora por defecto (próxima hora)
+            const nextHour = new Date(now.getTime() + 60 * 60 * 1000);
+            nextHour.setMinutes(0, 0, 0); // Redondear a la hora exacta
+            startTime = formatTimeForSelect(nextHour);
+            const endDateTime = new Date(nextHour.getTime() + 60 * 60 * 1000);
+            endTime = formatTimeForSelect(endDateTime);
+          }
           
           document.getElementById('eventStartTime').value = startTime;
           document.getElementById('eventEndTime').value = endTime;
@@ -7448,6 +7554,96 @@ app.get('/', (req, res) => {
           return hours + ':' + minutes;
         }
         
+        // Función para formatear hora para select
+        function formatTimeForSelect(date) {
+          const hours = String(date.getHours()).padStart(2, '0');
+          const minutes = String(date.getMinutes()).padStart(2, '0');
+          return hours + ':' + minutes;
+        }
+        
+        // Función para poblar las opciones de tiempo
+        function populateTimeOptions() {
+          const startTimeSelect = document.getElementById('eventStartTime');
+          const endTimeSelect = document.getElementById('eventEndTime');
+          
+          // Generar opciones de tiempo cada 15 minutos
+          const timeOptions = [];
+          for (let hour = 0; hour < 24; hour++) {
+            for (let minute = 0; minute < 60; minute += 15) {
+              const timeStr = String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+              const displayTime = formatTimeDisplay(hour, minute);
+              timeOptions.push({ value: timeStr, display: displayTime });
+            }
+          }
+          
+          // Poblar ambos selects
+          [startTimeSelect, endTimeSelect].forEach(select => {
+            select.innerHTML = timeOptions.map(option => 
+              '<option value="' + option.value + '">' + option.display + '</option>'
+            ).join('');
+          });
+          
+          // Agregar event listener para actualizar automáticamente la hora de fin
+          startTimeSelect.addEventListener('change', function() {
+            updateEndTimeBasedOnStart();
+          });
+        }
+        
+        // Función para formatear la hora de display (estilo Google Calendar)
+        function formatTimeDisplay(hour, minute) {
+          const ampm = hour >= 12 ? 'PM' : 'AM';
+          const displayHour = hour % 12 || 12;
+          const displayMinute = minute === 0 ? '' : ':' + String(minute).padStart(2, '0');
+          return displayHour + displayMinute + ' ' + ampm;
+        }
+        
+        // Función para actualizar la hora de fin automáticamente
+        function updateEndTimeBasedOnStart() {
+          const startTime = document.getElementById('eventStartTime').value;
+          const endTimeSelect = document.getElementById('eventEndTime');
+          
+          if (startTime) {
+            const [startHour, startMinute] = startTime.split(':').map(Number);
+            const startDateTime = new Date();
+            startDateTime.setHours(startHour, startMinute, 0, 0);
+            
+            // Agregar 1 hora por defecto
+            const endDateTime = new Date(startDateTime.getTime() + 60 * 60 * 1000);
+            const endTime = formatTimeForSelect(endDateTime);
+            
+            endTimeSelect.value = endTime;
+          }
+        }
+        
+        // Función para establecer duración rápida
+        function setQuickDuration(minutes) {
+          const startTime = document.getElementById('eventStartTime').value;
+          const endTimeSelect = document.getElementById('eventEndTime');
+          
+          // Remover clase active de todos los botones
+          document.querySelectorAll('.quick-duration-btn').forEach(btn => {
+            btn.classList.remove('active');
+          });
+          
+          // Agregar clase active al botón clickeado
+          event.target.classList.add('active');
+          
+          if (startTime) {
+            const [startHour, startMinute] = startTime.split(':').map(Number);
+            const startDateTime = new Date();
+            startDateTime.setHours(startHour, startMinute, 0, 0);
+            
+            if (minutes === 1440) { // Todo el día
+              document.getElementById('eventStartTime').value = '09:00';
+              document.getElementById('eventEndTime').value = '17:00';
+            } else {
+              const endDateTime = new Date(startDateTime.getTime() + minutes * 60 * 1000);
+              const endTime = formatTimeForSelect(endDateTime);
+              endTimeSelect.value = endTime;
+            }
+          }
+        }
+        
         // Función para cargar etiquetas disponibles
         async function loadTagsForEvent() {
           try {
@@ -7475,7 +7671,7 @@ app.get('/', (req, res) => {
         }
         
         // Función para crear el evento
-        async function createEvent() {
+        async function createNewEvent() {
           const form = document.getElementById('createEventForm');
           const formData = new FormData(form);
           
@@ -7568,6 +7764,28 @@ app.get('/', (req, res) => {
           loadEvents(activeView, dateParam);
         }
         
+        // Función para manejar click en slots de la vista semana
+        function handleWeekSlotClick(dayIndex, hour) {
+          // Verificar si hay eventos en este slot
+          const weekSlot = event.target;
+          const hasEvents = weekSlot.querySelector('.event-block');
+          
+          // Solo crear evento si no hay eventos existentes
+          if (!hasEvents) {
+            // Calcular la fecha del slot clickeado
+            const selectedDate = new Date(currentDate);
+            const startOfWeek = new Date(selectedDate.getTime() - (selectedDate.getDay() * 24 * 60 * 60 * 1000));
+            const targetDate = new Date(startOfWeek.getTime() + (dayIndex * 24 * 60 * 60 * 1000));
+            
+            // Formatear fecha y hora
+            const dateString = formatDateForInput(targetDate);
+            const timeString = String(hour).padStart(2, '0') + ':00';
+            
+            // Abrir modal con fecha y hora pre-rellenadas
+            openCreateEventModal(dateString, timeString);
+          }
+        }
+        
         // Permitir Enter para agregar asistente
         document.addEventListener('DOMContentLoaded', function() {
           const attendeeInput = document.getElementById('attendeeEmail');
@@ -7597,25 +7815,35 @@ app.get('/', (req, res) => {
                 <input type="text" id="eventTitle" name="summary" required class="form-control" placeholder="Ej: Reunión con cliente">
               </div>
               
-              <div class="form-row">
-                <div class="form-group half">
-                  <label for="eventStartDate">Fecha de inicio *</label>
-                  <input type="date" id="eventStartDate" name="startDate" required class="form-control">
-                </div>
-                <div class="form-group half">
-                  <label for="eventStartTime">Hora de inicio *</label>
-                  <input type="time" id="eventStartTime" name="startTime" required class="form-control">
-                </div>
-              </div>
-              
-              <div class="form-row">
-                <div class="form-group half">
-                  <label for="eventEndDate">Fecha de fin *</label>
-                  <input type="date" id="eventEndDate" name="endDate" required class="form-control">
-                </div>
-                <div class="form-group half">
-                  <label for="eventEndTime">Hora de fin *</label>
-                  <input type="time" id="eventEndTime" name="endTime" required class="form-control">
+              <div class="form-group">
+                <label>Fecha y hora *</label>
+                <div class="datetime-container">
+                  <div class="datetime-row">
+                    <div class="datetime-group">
+                      <label class="datetime-label">Inicio</label>
+                      <div class="datetime-inputs">
+                        <input type="date" id="eventStartDate" name="startDate" required class="form-control datetime-date">
+                        <select id="eventStartTime" name="startTime" required class="form-control datetime-time">
+                          <!-- Options will be populated by JavaScript -->
+                        </select>
+                      </div>
+                    </div>
+                    <div class="datetime-group">
+                      <label class="datetime-label">Fin</label>
+                      <div class="datetime-inputs">
+                        <input type="date" id="eventEndDate" name="endDate" required class="form-control datetime-date">
+                        <select id="eventEndTime" name="endTime" required class="form-control datetime-time">
+                          <!-- Options will be populated by JavaScript -->
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="datetime-quick-options">
+                    <button type="button" class="quick-duration-btn" onclick="setQuickDuration(30)">30 min</button>
+                    <button type="button" class="quick-duration-btn" onclick="setQuickDuration(60)">1 hora</button>
+                    <button type="button" class="quick-duration-btn" onclick="setQuickDuration(120)">2 horas</button>
+                    <button type="button" class="quick-duration-btn" onclick="setQuickDuration(1440)">Todo el día</button>
+                  </div>
                 </div>
               </div>
               
@@ -7651,7 +7879,7 @@ app.get('/', (req, res) => {
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-outline" onclick="closeCreateEventModal()">Cancelar</button>
-            <button type="button" class="btn btn-primary" onclick="createEvent()">Crear Reunión</button>
+            <button type="button" class="btn btn-primary" onclick="createNewEvent()">Crear Reunión</button>
           </div>
         </div>
       </div>
