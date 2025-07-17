@@ -4647,30 +4647,30 @@ app.get('/', (req, res) => {
           <div class="modal-body">
             <div class="form-group">
               <label class="form-label">Título del Evento</label>
-              <input type="text" id="eventTitle" class="form-input" placeholder="Título del evento">
+              <input type="text" id="editEventTitle" class="form-input" placeholder="Título del evento">
             </div>
             
             <div class="form-group">
               <label class="form-label">Descripción</label>
-              <textarea id="eventDescription" class="form-textarea" placeholder="Descripción del evento"></textarea>
+              <textarea id="editEventDescription" class="form-textarea" placeholder="Descripción del evento"></textarea>
             </div>
             
             <div class="form-group">
               <label class="form-label">Fecha y Hora</label>
               <div style="display: flex; gap: 10px; align-items: center;">
-                <input type="date" id="eventStartDate" class="form-input" style="width: 150px;">
-                <input type="time" id="eventStartTime" class="form-input" style="width: 100px;">
+                <input type="date" id="editEventStartDate" class="form-input" style="width: 150px;">
+                <input type="time" id="editEventStartTime" class="form-input" style="width: 100px;">
                 <span>hasta</span>
-                <input type="time" id="eventEndTime" class="form-input" style="width: 100px;">
+                <input type="time" id="editEventEndTime" class="form-input" style="width: 100px;">
               </div>
               <label style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" id="eventAllDay"> Todo el día
+                <input type="checkbox" id="editEventAllDay"> Todo el día
               </label>
             </div>
             
             <div class="form-group">
               <label class="form-label">Asistentes</label>
-              <div id="attendeesList" class="attendees-list"></div>
+              <div id="editAttendeesList" class="attendees-list"></div>
               <div style="margin-top: 10px;">
                 <input type="email" id="newAttendeeEmail" class="form-input" placeholder="email@ejemplo.com" style="margin-bottom: 10px;">
                 <button class="btn btn-secondary" onclick="addAttendee()">Agregar Asistente</button>
@@ -4679,7 +4679,7 @@ app.get('/', (req, res) => {
             
             <div class="form-group">
               <label class="form-label">Notas Internas</label>
-              <textarea id="eventNotes" class="form-textarea" placeholder="Notas sobre esta reunión..."></textarea>
+              <textarea id="editEventNotes" class="form-textarea" placeholder="Notas sobre esta reunión..."></textarea>
             </div>
             
             <div class="form-group">
@@ -5453,44 +5453,44 @@ app.get('/', (req, res) => {
         });
 
         async function populateEventModal(event) {
-          document.getElementById('eventTitle').value = event.summary || '';
-          document.getElementById('eventDescription').value = event.description || '';
-          document.getElementById('eventNotes').value = event.notes || '';
+          document.getElementById('editEventTitle').value = event.summary || '';
+          document.getElementById('editEventDescription').value = event.description || '';
+          document.getElementById('editEventNotes').value = event.notes || '';
           
           // Format date and time for editing
           const startDate = new Date(event.start.dateTime || event.start.date);
           const endDate = new Date(event.end.dateTime || event.end.date);
           
           // Set date field
-          document.getElementById('eventStartDate').value = startDate.toISOString().split('T')[0];
+          document.getElementById('editEventStartDate').value = startDate.toISOString().split('T')[0];
           
           // Check if it's all day event
           const isAllDay = !event.start.dateTime;
-          document.getElementById('eventAllDay').checked = isAllDay;
+          document.getElementById('editEventAllDay').checked = isAllDay;
           
           if (isAllDay) {
-            document.getElementById('eventStartTime').value = '';
-            document.getElementById('eventEndTime').value = '';
-            document.getElementById('eventStartTime').disabled = true;
-            document.getElementById('eventEndTime').disabled = true;
+            document.getElementById('editEventStartTime').value = '';
+            document.getElementById('editEventEndTime').value = '';
+            document.getElementById('editEventStartTime').disabled = true;
+            document.getElementById('editEventEndTime').disabled = true;
           } else {
-            document.getElementById('eventStartTime').value = startDate.toTimeString().slice(0, 5);
-            document.getElementById('eventEndTime').value = endDate.toTimeString().slice(0, 5);
-            document.getElementById('eventStartTime').disabled = false;
-            document.getElementById('eventEndTime').disabled = false;
+            document.getElementById('editEventStartTime').value = startDate.toTimeString().slice(0, 5);
+            document.getElementById('editEventEndTime').value = endDate.toTimeString().slice(0, 5);
+            document.getElementById('editEventStartTime').disabled = false;
+            document.getElementById('editEventEndTime').disabled = false;
           }
           
           // Add event listener for all day checkbox
-          document.getElementById('eventAllDay').addEventListener('change', function() {
+          document.getElementById('editEventAllDay').addEventListener('change', function() {
             const isAllDay = this.checked;
-            document.getElementById('eventStartTime').disabled = isAllDay;
-            document.getElementById('eventEndTime').disabled = isAllDay;
+            document.getElementById('editEventStartTime').disabled = isAllDay;
+            document.getElementById('editEventEndTime').disabled = isAllDay;
             if (isAllDay) {
-              document.getElementById('eventStartTime').value = '';
-              document.getElementById('eventEndTime').value = '';
+              document.getElementById('editEventStartTime').value = '';
+              document.getElementById('editEventEndTime').value = '';
             } else {
-              document.getElementById('eventStartTime').value = '09:00';
-              document.getElementById('eventEndTime').value = '10:00';
+              document.getElementById('editEventStartTime').value = '09:00';
+              document.getElementById('editEventEndTime').value = '10:00';
             }
           });
           
@@ -5498,7 +5498,7 @@ app.get('/', (req, res) => {
           await loadTagsAndContacts();
           
           // Populate attendees AFTER tags are loaded
-          const attendeesList = document.getElementById('attendeesList');
+          const attendeesList = document.getElementById('editAttendeesList');
           attendeesList.innerHTML = '';
           
           console.log('Event attendees:', event.attendees);
@@ -7729,16 +7729,22 @@ app.get('/', (req, res) => {
             const result = await response.json();
             
             if (result.success) {
-              alert('Reunión creada exitosamente');
+              // Cerrar modal inmediatamente para mejor UX
               closeCreateEventModal();
               
               // Recargar eventos del calendario
               loadEventsWithCurrentView();
               
-              // Sincronizar etiquetas de asistentes si hay
+              // Sincronizar etiquetas de asistentes si hay (en background)
               if (eventAttendees.length > 0 && selectedTags.length > 0) {
-                await syncAttendeeTags(result.data.id, eventAttendees, selectedTags);
+                syncAttendeeTags(result.data.id, eventAttendees, selectedTags).catch(error => {
+                  console.error('Error syncing attendee tags:', error);
+                  // No mostrar error al usuario, es proceso en background
+                });
               }
+              
+              // Mostrar notificación de éxito (opcional)
+              console.log('Reunión creada exitosamente');
             } else {
               alert('Error al crear la reunión: ' + result.error);
             }
