@@ -7586,8 +7586,23 @@ app.get('/', (req, res) => {
           
           // Seleccionar la opción más cercana a la hora solicitada
           if (prefillDate && prefillTime) {
-            const targetValue = startDate.toISOString();
-            const closestOption = options.find(opt => opt.value === targetValue);
+            const targetDateTime = new Date(prefillDate);
+            const [hours, minutes] = prefillTime.split(':');
+            targetDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+            
+            // Encontrar la opción más cercana
+            let closestOption = null;
+            let minDiff = Infinity;
+            
+            for (const option of options) {
+              const optionDate = new Date(option.value);
+              const diff = Math.abs(optionDate.getTime() - targetDateTime.getTime());
+              if (diff < minDiff) {
+                minDiff = diff;
+                closestOption = option;
+              }
+            }
+            
             if (closestOption) {
               select.value = closestOption.value;
             }
@@ -7658,30 +7673,11 @@ app.get('/', (req, res) => {
           });
         }
         
-        // Función para cargar etiquetas disponibles
+        // Función para cargar etiquetas disponibles (simplificada)
         async function loadTagsForEvent() {
-          try {
-            const response = await fetch('/api/tags');
-            const result = await response.json();
-            
-            if (result.success) {
-              availableTagsForEvent = result.data;
-              populateEventTagsContainer();
-            }
-          } catch (error) {
-            console.error('Error loading tags:', error);
-          }
-        }
-        
-        // Función para poblar el contenedor de etiquetas
-        function populateEventTagsContainer() {
-          const container = document.getElementById('tagsContainer');
-          container.innerHTML = availableTagsForEvent.map(tag => 
-            '<div class="tag-item" data-tag="' + tag.tag + '">' +
-              '<input type="checkbox" class="tag-checkbox" value="' + tag.tag + '" id="tag-' + tag.tag + '">' +
-              '<label for="tag-' + tag.tag + '" class="tag-badge">' + tag.tag + '</label>' +
-            '</div>'
-          ).join('');
+          // Ya no necesitamos cargar etiquetas manualmente
+          // El etiquetado será automático para correos externos
+          console.log('Tags will be applied automatically to external attendees');
         }
         
         // Función para crear el evento
@@ -7703,9 +7699,6 @@ app.get('/', (req, res) => {
           const startDate = new Date(startDateTime);
           const endDate = new Date(startDate.getTime() + duration * 60 * 1000);
           
-          // Obtener etiquetas seleccionadas
-          const selectedTags = Array.from(document.querySelectorAll('.tag-checkbox:checked')).map(cb => cb.value);
-          
           // Preparar datos del evento
           const eventData = {
             summary: title,
@@ -7713,8 +7706,7 @@ app.get('/', (req, res) => {
             start: startDate.toISOString(),
             end: endDate.toISOString(),
             attendees: eventAttendees,
-            notes: formData.get('notes'),
-            tags: selectedTags
+            notes: formData.get('notes')
           };
           
           try {
@@ -7735,12 +7727,18 @@ app.get('/', (req, res) => {
               // Recargar eventos del calendario
               loadEventsWithCurrentView();
               
-              // Sincronizar etiquetas de asistentes si hay (en background)
-              if (eventAttendees.length > 0 && selectedTags.length > 0) {
-                syncAttendeeTags(result.data.id, eventAttendees, selectedTags).catch(error => {
-                  console.error('Error syncing attendee tags:', error);
-                  // No mostrar error al usuario, es proceso en background
-                });
+              // Etiquetar automáticamente correos externos (en background)
+              if (eventAttendees.length > 0) {
+                const externalAttendees = eventAttendees.filter(email => 
+                  !email.includes('@intothecom.com') && !email.includes('@intothecom')
+                );
+                
+                if (externalAttendees.length > 0) {
+                  syncAttendeeTags(result.data.id, externalAttendees, ['New Lead']).catch(error => {
+                    console.error('Error syncing attendee tags:', error);
+                    // No mostrar error al usuario, es proceso en background
+                  });
+                }
               }
               
               // Mostrar notificación de éxito (opcional)
@@ -7873,16 +7871,6 @@ app.get('/', (req, res) => {
               <div class="form-group">
                 <label for="eventNotes">Notas internas</label>
                 <textarea id="eventNotes" name="notes" class="form-control" rows="2" placeholder="Notas privadas (no visibles para asistentes)"></textarea>
-              </div>
-              
-              <div class="form-group">
-                <label>Etiquetas para nuevos contactos</label>
-                <div id="tagsContainer" class="tags-container">
-                  <div class="tag-item" data-tag="New Lead">
-                    <span class="tag-badge">New Lead</span>
-                    <input type="checkbox" class="tag-checkbox" value="New Lead" checked>
-                  </div>
-                </div>
               </div>
             </form>
           </div>
