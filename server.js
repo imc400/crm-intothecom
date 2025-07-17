@@ -910,6 +910,43 @@ app.get('/api/events/:eventId', async (req, res) => {
   }
 });
 
+// Delete event
+app.delete('/api/events/:eventId', async (req, res) => {
+  const { eventId } = req.params;
+  
+  try {
+    if (!oAuth2Client) {
+      return res.status(500).json({
+        success: false,
+        error: 'Google Calendar client not configured'
+      });
+    }
+
+    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+    
+    // Delete the event from Google Calendar
+    await calendar.events.delete({
+      calendarId: 'primary',
+      eventId: eventId
+    });
+    
+    // Delete from local database
+    await db.query('DELETE FROM events WHERE google_event_id = $1', [eventId]);
+    
+    res.json({
+      success: true,
+      message: 'Reunión eliminada exitosamente'
+    });
+    
+  } catch (error) {
+    console.error('Error deleting event:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al eliminar la reunión'
+    });
+  }
+});
+
 // Update event
 app.post('/api/events/:eventId', async (req, res) => {
   const { eventId } = req.params;
@@ -3276,6 +3313,22 @@ app.get('/', (req, res) => {
           background: #cbd5e0;
         }
         
+        .btn-delete {
+          background: #e53e3e;
+          color: white;
+          border: none;
+          padding: 10px 20px;
+          border-radius: 6px;
+          cursor: pointer;
+          font-weight: 500;
+          transition: all 0.2s ease;
+        }
+        
+        .btn-delete:hover {
+          background: #c53030;
+          transform: translateY(-1px);
+        }
+        
         .btn-save {
           background: #FF6B00;
           color: white;
@@ -4148,6 +4201,48 @@ app.get('/', (req, res) => {
           font-size: 15px;
         }
         
+        .attendee-info {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        
+        .attendee-tags {
+          margin-top: 4px;
+        }
+        
+        .attendee-tag-select {
+          background: rgba(255, 255, 255, 0.9);
+          border: 1px solid rgba(255, 107, 0, 0.3);
+          border-radius: 6px;
+          padding: 4px 8px;
+          font-size: 12px;
+          color: #4a5568;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        
+        .attendee-tag-select:focus {
+          outline: none;
+          border-color: #FF6B00;
+          box-shadow: 0 0 0 2px rgba(255, 107, 0, 0.2);
+        }
+        
+        .attendee-tag-select:hover {
+          border-color: #FF6B00;
+        }
+        
+        .internal-badge {
+          background: linear-gradient(135deg, #68d391, #48bb78);
+          color: white;
+          padding: 2px 8px;
+          border-radius: 12px;
+          font-size: 11px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+        
         .attendee-actions {
           display: flex;
           gap: 12px;
@@ -4689,6 +4784,7 @@ app.get('/', (req, res) => {
           </div>
           <div class="modal-footer">
             <button class="btn-cancel" onclick="closeEventModal()">Cancelar</button>
+            <button class="btn-delete" onclick="deleteEvent()">Eliminar Reunión</button>
             <button class="btn-save" onclick="saveEventChanges()">Guardar Cambios</button>
           </div>
         </div>
@@ -6275,6 +6371,37 @@ app.get('/', (req, res) => {
           }
         }
 
+        async function deleteEvent() {
+          if (!currentEventId) return;
+          
+          // Confirm deletion
+          const confirmed = confirm('¿Estás seguro de que quieres eliminar esta reunión? Esta acción no se puede deshacer.');
+          if (!confirmed) return;
+          
+          try {
+            const response = await fetch('/api/events/' + currentEventId, {
+              method: 'DELETE',
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              alert('Reunión eliminada exitosamente');
+              closeEventModal();
+              // Refresh calendar view
+              refreshData();
+            } else {
+              alert('Error al eliminar reunión: ' + result.error);
+            }
+          } catch (error) {
+            console.error('Error deleting event:', error);
+            alert('Error de conexión al eliminar reunión');
+          }
+        }
+
         function addAttendee() {
           const email = document.getElementById('newAttendeeEmail').value.trim();
           if (!email) return;
@@ -7431,7 +7558,7 @@ app.get('/', (req, res) => {
         
         // Variables para el modal de crear eventos
         let eventAttendees = [];
-        let availableTagsForEvent = [];
+        let attendeeTags = {}; // Para almacenar etiquetas por email
         
         // Función para abrir el modal de crear evento
         function openCreateEventModal(prefillDate = null, prefillTime = null) {
@@ -7487,7 +7614,17 @@ app.get('/', (req, res) => {
         // Función para remover asistente
         function removeAttendee(email) {
           eventAttendees = eventAttendees.filter(attendee => attendee !== email);
+          delete attendeeTags[email]; // Remover etiqueta también
           updateAttendeesList();
+        }
+        
+        // Función para actualizar etiqueta de asistente
+        function updateAttendeeTag(email, tag) {
+          if (tag) {
+            attendeeTags[email] = tag;
+          } else {
+            delete attendeeTags[email];
+          }
         }
         
         // Función para actualizar la lista de asistentes
@@ -7499,12 +7636,32 @@ app.get('/', (req, res) => {
             return;
           }
           
-          attendeesList.innerHTML = eventAttendees.map(email => 
-            '<div class="attendee-item">' +
-              '<span class="attendee-email">' + email + '</span>' +
+          attendeesList.innerHTML = eventAttendees.map(email => {
+            const isExternal = !email.includes('@intothecom.com') && !email.includes('@intothecom');
+            const currentTag = attendeeTags[email] || 'New Lead';
+            
+            // Asegurar que los externos tengan etiqueta por defecto
+            if (isExternal && !attendeeTags[email]) {
+              attendeeTags[email] = 'New Lead';
+            }
+            
+            return '<div class="attendee-item">' +
+              '<div class="attendee-info">' +
+                '<span class="attendee-email">' + email + '</span>' +
+                (isExternal ? 
+                  '<div class="attendee-tags">' +
+                    '<select class="attendee-tag-select" onchange="updateAttendeeTag(\'' + email + '\', this.value)">' +
+                      '<option value="New Lead"' + (currentTag === 'New Lead' ? ' selected' : '') + '>New Lead</option>' +
+                      '<option value="Cliente"' + (currentTag === 'Cliente' ? ' selected' : '') + '>Cliente</option>' +
+                      '<option value="Prospecto"' + (currentTag === 'Prospecto' ? ' selected' : '') + '>Prospecto</option>' +
+                    '</select>' +
+                  '</div>' : 
+                  '<span class="internal-badge">Interno</span>'
+                ) +
+              '</div>' +
               '<button class="remove-attendee" onclick="removeAttendee(\'' + email + '\')">Remover</button>' +
-            '</div>'
-          ).join('');
+            '</div>';
+          }).join('');
         }
         
         // Función para validar email
@@ -7540,18 +7697,6 @@ app.get('/', (req, res) => {
           const select = document.getElementById('eventStartDateTime');
           const now = new Date();
           
-          // Determinar fecha/hora inicial
-          let startDate;
-          if (prefillDate) {
-            startDate = new Date(prefillDate);
-          } else {
-            startDate = new Date(now.getTime() + 60 * 60 * 1000); // Próxima hora
-          }
-          
-          if (prefillTime) {
-            const [hours, minutes] = prefillTime.split(':');
-            startDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-          }
           
           // Generar opciones para los próximos 14 días
           const options = [];
@@ -7586,9 +7731,11 @@ app.get('/', (req, res) => {
           
           // Seleccionar la opción más cercana a la hora solicitada
           if (prefillDate && prefillTime) {
-            const targetDateTime = new Date(prefillDate);
+            // Crear fecha target usando el formato YYYY-MM-DD y la hora
+            const [year, month, day] = prefillDate.split('-');
             const [hours, minutes] = prefillTime.split(':');
-            targetDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+            const targetDateTime = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), parseInt(hours), parseInt(minutes), 0, 0);
+            
             
             // Encontrar la opción más cercana
             let closestOption = null;
@@ -7795,6 +7942,7 @@ app.get('/', (req, res) => {
             // Formatear fecha y hora
             const dateString = formatDateForInput(targetDate);
             const timeString = String(hour).padStart(2, '0') + ':00';
+            
             
             // Abrir modal con fecha y hora pre-rellenadas
             openCreateEventModal(dateString, timeString);
