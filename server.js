@@ -1413,6 +1413,104 @@ app.get('/api/calendar/events', async (req, res) => {
   }
 });
 
+// Create new calendar event
+app.post('/api/events', async (req, res) => {
+  if (!oAuth2Client) {
+    return res.status(500).json({
+      success: false,
+      error: 'Google authentication not configured'
+    });
+  }
+
+  const { summary, description, start, end, attendees, notes } = req.body;
+  
+  // Validate required fields
+  if (!summary || !start || !end) {
+    return res.status(400).json({
+      success: false,
+      error: 'Missing required fields: summary, start, end'
+    });
+  }
+
+  try {
+    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+    
+    // Prepare event data
+    const eventData = {
+      summary: summary,
+      description: description + (notes ? `\n\n--- Internal Notes ---\n${notes}` : ''),
+      start: {
+        dateTime: start,
+        timeZone: 'America/New_York'
+      },
+      end: {
+        dateTime: end,
+        timeZone: 'America/New_York'
+      }
+    };
+
+    // Add attendees if provided
+    if (attendees && Array.isArray(attendees) && attendees.length > 0) {
+      eventData.attendees = attendees.map(email => ({ email: email.trim() }));
+    }
+
+    // Create the event
+    const response = await calendar.events.insert({
+      calendarId: 'primary',
+      requestBody: eventData,
+      sendUpdates: 'all' // Send email invitations to attendees
+    });
+
+    const createdEvent = response.data;
+    console.log('Event created successfully:', {
+      id: createdEvent.id,
+      summary: createdEvent.summary,
+      start: createdEvent.start?.dateTime || createdEvent.start?.date,
+      attendees: createdEvent.attendees?.length || 0
+    });
+
+    // Process attendees for contact sync if they exist
+    if (createdEvent.attendees && createdEvent.attendees.length > 0) {
+      try {
+        for (const attendee of createdEvent.attendees) {
+          if (attendee.email) {
+            await processContactFromEvent(attendee, createdEvent, { rows: [] });
+          }
+        }
+        console.log('Attendees processed for contact sync');
+      } catch (syncError) {
+        console.error('Error processing attendees for contact sync:', syncError);
+      }
+    }
+
+    res.json({
+      success: true,
+      data: createdEvent,
+      message: 'Event created successfully'
+    });
+
+  } catch (error) {
+    console.error('Error creating calendar event:', error);
+    
+    if (error.code === 401) {
+      res.status(401).json({
+        success: false,
+        error: 'Authentication required. Please connect to Google Calendar first.'
+      });
+    } else if (error.code === 403) {
+      res.status(403).json({
+        success: false,
+        error: 'Permission denied. Check your Google Calendar access.'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to create calendar event: ' + (error.message || 'Unknown error')
+      });
+    }
+  }
+});
+
 // Serve static files
 app.use(express.static('public'));
 
@@ -1744,6 +1842,40 @@ app.get('/', (req, res) => {
         
         .btn-secondary:hover {
           box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-create-event {
+          background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+          color: white;
+          border: none;
+          padding: 12px 20px;
+          border-radius: 8px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          box-shadow: 0 4px 16px rgba(76, 175, 80, 0.3);
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .btn-create-event:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 24px rgba(76, 175, 80, 0.4);
+        }
+        
+        .btn-create-event::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -100%;
+          width: 100%;
+          height: 100%;
+          background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+          transition: left 0.5s;
+        }
+        
+        .btn-create-event:hover::before {
+          left: 100%;
         }
         
         .btn-success {
@@ -2755,6 +2887,131 @@ app.get('/', (req, res) => {
           border-radius: 6px;
           padding: 15px;
           margin-bottom: 15px;
+        }
+        
+        .form-control {
+          width: 100%;
+          padding: 12px;
+          border: 1px solid #e2e8f0;
+          border-radius: 8px;
+          font-size: 14px;
+          color: #2d3748;
+          background: rgba(255, 255, 255, 0.9);
+          transition: all 0.3s ease;
+        }
+        
+        .form-control:focus {
+          outline: none;
+          border-color: #FF6B00;
+          box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.1);
+          background: rgba(255, 255, 255, 1);
+        }
+        
+        .form-row {
+          display: flex;
+          gap: 15px;
+          margin-bottom: 20px;
+        }
+        
+        .form-group.half {
+          flex: 1;
+        }
+        
+        .attendees-input-container {
+          display: flex;
+          gap: 10px;
+          margin-bottom: 15px;
+        }
+        
+        .attendees-input-container .form-control {
+          flex: 1;
+        }
+        
+        .attendees-list {
+          min-height: 50px;
+          max-height: 150px;
+          overflow-y: auto;
+        }
+        
+        .attendee-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 8px 12px;
+          background: rgba(255, 255, 255, 0.8);
+          border: 1px solid #e2e8f0;
+          border-radius: 6px;
+          margin-bottom: 8px;
+          transition: all 0.2s ease;
+        }
+        
+        .attendee-item:hover {
+          background: rgba(255, 255, 255, 1);
+          border-color: #FF6B00;
+        }
+        
+        .attendee-email {
+          font-size: 14px;
+          color: #4a5568;
+        }
+        
+        .remove-attendee {
+          background: #e53e3e;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          padding: 4px 8px;
+          cursor: pointer;
+          font-size: 12px;
+          transition: background 0.2s ease;
+        }
+        
+        .remove-attendee:hover {
+          background: #c53030;
+        }
+        
+        .tags-container {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 10px;
+        }
+        
+        .tag-item {
+          position: relative;
+          display: inline-block;
+        }
+        
+        .tag-badge {
+          display: inline-block;
+          padding: 6px 12px;
+          background: var(--primary-gradient);
+          color: white;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+        
+        .tag-item:hover .tag-badge {
+          transform: scale(1.05);
+        }
+        
+        .tag-checkbox {
+          position: absolute;
+          opacity: 0;
+          cursor: pointer;
+        }
+        
+        .tag-checkbox:checked + .tag-badge {
+          background: var(--primary-gradient);
+          box-shadow: 0 0 0 2px rgba(255, 107, 0, 0.3);
+        }
+        
+        .tag-checkbox:not(:checked) + .tag-badge {
+          background: #e2e8f0;
+          color: #718096;
         }
         
         .attendee-item {
@@ -3977,6 +4234,7 @@ app.get('/', (req, res) => {
                     <button onclick="showWeekView()" class="view-btn active" data-view="week">Semana</button>
                     <button onclick="showMonthView()" class="view-btn" data-view="month">Mes</button>
                     <button onclick="loadCalendarEvents()" class="btn-primary">Cargar Eventos</button>
+                    <button onclick="openCreateEventModal()" class="btn-create-event">+ Nueva Reunión</button>
                   </div>
                 </div>
                 <div class="calendar-grid">
@@ -7086,7 +7344,318 @@ app.get('/', (req, res) => {
             originalLoadContacts();
           }
         };
+        
+        // Variables para el modal de crear eventos
+        let eventAttendees = [];
+        let availableTagsForEvent = [];
+        
+        // Función para abrir el modal de crear evento
+        function openCreateEventModal() {
+          document.getElementById('createEventModal').style.display = 'block';
+          loadTagsForEvent();
+          
+          // Inicializar fechas por defecto
+          const now = new Date();
+          const startDate = formatDateForInput(now);
+          const endDate = formatDateForInput(now);
+          
+          document.getElementById('eventStartDate').value = startDate;
+          document.getElementById('eventEndDate').value = endDate;
+          
+          // Hora por defecto (próxima hora)
+          const nextHour = new Date(now.getTime() + 60 * 60 * 1000);
+          const startTime = formatTimeForInput(nextHour);
+          const endTime = formatTimeForInput(new Date(nextHour.getTime() + 60 * 60 * 1000));
+          
+          document.getElementById('eventStartTime').value = startTime;
+          document.getElementById('eventEndTime').value = endTime;
+        }
+        
+        // Función para cerrar el modal
+        function closeCreateEventModal() {
+          document.getElementById('createEventModal').style.display = 'none';
+          document.getElementById('createEventForm').reset();
+          eventAttendees = [];
+          updateAttendeesList();
+        }
+        
+        // Función para agregar asistente
+        function addAttendee() {
+          const emailInput = document.getElementById('attendeeEmail');
+          const email = emailInput.value.trim();
+          
+          if (!email) {
+            alert('Por favor ingresa un email');
+            return;
+          }
+          
+          if (!validateEmail(email)) {
+            alert('Por favor ingresa un email válido');
+            return;
+          }
+          
+          if (eventAttendees.includes(email)) {
+            alert('Este email ya está en la lista de asistentes');
+            return;
+          }
+          
+          eventAttendees.push(email);
+          emailInput.value = '';
+          updateAttendeesList();
+        }
+        
+        // Función para remover asistente
+        function removeAttendee(email) {
+          eventAttendees = eventAttendees.filter(attendee => attendee !== email);
+          updateAttendeesList();
+        }
+        
+        // Función para actualizar la lista de asistentes
+        function updateAttendeesList() {
+          const attendeesList = document.getElementById('attendeesList');
+          
+          if (eventAttendees.length === 0) {
+            attendeesList.innerHTML = '<div style="text-align: center; color: #718096; font-style: italic;">No hay asistentes agregados</div>';
+            return;
+          }
+          
+          attendeesList.innerHTML = eventAttendees.map(email => 
+            '<div class="attendee-item">' +
+              '<span class="attendee-email">' + email + '</span>' +
+              '<button class="remove-attendee" onclick="removeAttendee(\'' + email + '\')">Remover</button>' +
+            '</div>'
+          ).join('');
+        }
+        
+        // Función para validar email
+        function validateEmail(email) {
+          const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+          return re.test(email);
+        }
+        
+        // Función para formatear fecha para input
+        function formatDateForInput(date) {
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, '0');
+          const day = String(date.getDate()).padStart(2, '0');
+          return year + '-' + month + '-' + day;
+        }
+        
+        // Función para formatear hora para input
+        function formatTimeForInput(date) {
+          const hours = String(date.getHours()).padStart(2, '0');
+          const minutes = String(date.getMinutes()).padStart(2, '0');
+          return hours + ':' + minutes;
+        }
+        
+        // Función para cargar etiquetas disponibles
+        async function loadTagsForEvent() {
+          try {
+            const response = await fetch('/api/tags');
+            const result = await response.json();
+            
+            if (result.success) {
+              availableTagsForEvent = result.data;
+              populateEventTagsContainer();
+            }
+          } catch (error) {
+            console.error('Error loading tags:', error);
+          }
+        }
+        
+        // Función para poblar el contenedor de etiquetas
+        function populateEventTagsContainer() {
+          const container = document.getElementById('tagsContainer');
+          container.innerHTML = availableTagsForEvent.map(tag => 
+            '<div class="tag-item" data-tag="' + tag.tag + '">' +
+              '<input type="checkbox" class="tag-checkbox" value="' + tag.tag + '" id="tag-' + tag.tag + '">' +
+              '<label for="tag-' + tag.tag + '" class="tag-badge">' + tag.tag + '</label>' +
+            '</div>'
+          ).join('');
+        }
+        
+        // Función para crear el evento
+        async function createEvent() {
+          const form = document.getElementById('createEventForm');
+          const formData = new FormData(form);
+          
+          // Validar campos requeridos
+          const title = formData.get('summary');
+          const startDate = formData.get('startDate');
+          const startTime = formData.get('startTime');
+          const endDate = formData.get('endDate');
+          const endTime = formData.get('endTime');
+          
+          if (!title || !startDate || !startTime || !endDate || !endTime) {
+            alert('Por favor completa todos los campos requeridos');
+            return;
+          }
+          
+          // Construir fecha/hora ISO
+          const startDateTime = startDate + 'T' + startTime + ':00-05:00';
+          const endDateTime = endDate + 'T' + endTime + ':00-05:00';
+          
+          // Obtener etiquetas seleccionadas
+          const selectedTags = Array.from(document.querySelectorAll('.tag-checkbox:checked')).map(cb => cb.value);
+          
+          // Preparar datos del evento
+          const eventData = {
+            summary: title,
+            description: formData.get('description'),
+            start: startDateTime,
+            end: endDateTime,
+            attendees: eventAttendees,
+            notes: formData.get('notes'),
+            tags: selectedTags
+          };
+          
+          try {
+            const response = await fetch('/api/events', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify(eventData)
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              alert('Reunión creada exitosamente');
+              closeCreateEventModal();
+              
+              // Recargar eventos del calendario
+              loadEventsWithCurrentView();
+              
+              // Sincronizar etiquetas de asistentes si hay
+              if (eventAttendees.length > 0 && selectedTags.length > 0) {
+                await syncAttendeeTags(result.data.id, eventAttendees, selectedTags);
+              }
+            } else {
+              alert('Error al crear la reunión: ' + result.error);
+            }
+          } catch (error) {
+            console.error('Error creating event:', error);
+            alert('Error de conexión al crear la reunión');
+          }
+        }
+        
+        // Función para sincronizar etiquetas de asistentes
+        async function syncAttendeeTags(eventId, attendees, tags) {
+          try {
+            for (const attendeeEmail of attendees) {
+              await fetch('/api/sync-attendee-tags', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  eventId: eventId,
+                  attendeeEmail: attendeeEmail,
+                  tags: tags
+                })
+              });
+            }
+            console.log('Attendee tags synchronized successfully');
+          } catch (error) {
+            console.error('Error syncing attendee tags:', error);
+          }
+        }
+        
+        // Función para cargar eventos con la vista actual
+        function loadEventsWithCurrentView() {
+          const dateParam = getLocalDateString(currentDate);
+          loadEvents(activeView, dateParam);
+        }
+        
+        // Permitir Enter para agregar asistente
+        document.addEventListener('DOMContentLoaded', function() {
+          const attendeeInput = document.getElementById('attendeeEmail');
+          if (attendeeInput) {
+            attendeeInput.addEventListener('keypress', function(e) {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                addAttendee();
+              }
+            });
+          }
+        });
+        
       </script>
+      
+      <!-- Modal para crear nueva reunión -->
+      <div id="createEventModal" class="modal" style="display: none;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Nueva Reunión</h3>
+            <button class="close-btn" onclick="closeCreateEventModal()">&times;</button>
+          </div>
+          <div class="modal-body">
+            <form id="createEventForm">
+              <div class="form-group">
+                <label for="eventTitle">Título de la reunión *</label>
+                <input type="text" id="eventTitle" name="summary" required class="form-control" placeholder="Ej: Reunión con cliente">
+              </div>
+              
+              <div class="form-row">
+                <div class="form-group half">
+                  <label for="eventStartDate">Fecha de inicio *</label>
+                  <input type="date" id="eventStartDate" name="startDate" required class="form-control">
+                </div>
+                <div class="form-group half">
+                  <label for="eventStartTime">Hora de inicio *</label>
+                  <input type="time" id="eventStartTime" name="startTime" required class="form-control">
+                </div>
+              </div>
+              
+              <div class="form-row">
+                <div class="form-group half">
+                  <label for="eventEndDate">Fecha de fin *</label>
+                  <input type="date" id="eventEndDate" name="endDate" required class="form-control">
+                </div>
+                <div class="form-group half">
+                  <label for="eventEndTime">Hora de fin *</label>
+                  <input type="time" id="eventEndTime" name="endTime" required class="form-control">
+                </div>
+              </div>
+              
+              <div class="form-group">
+                <label for="eventDescription">Descripción</label>
+                <textarea id="eventDescription" name="description" class="form-control" rows="3" placeholder="Descripción de la reunión"></textarea>
+              </div>
+              
+              <div class="form-group">
+                <label for="eventAttendees">Asistentes</label>
+                <div class="attendees-input-container">
+                  <input type="email" id="attendeeEmail" class="form-control" placeholder="email@ejemplo.com">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="addAttendee()">Agregar</button>
+                </div>
+                <div id="attendeesList" class="attendees-list"></div>
+              </div>
+              
+              <div class="form-group">
+                <label for="eventNotes">Notas internas</label>
+                <textarea id="eventNotes" name="notes" class="form-control" rows="2" placeholder="Notas privadas (no visibles para asistentes)"></textarea>
+              </div>
+              
+              <div class="form-group">
+                <label>Etiquetas para nuevos contactos</label>
+                <div id="tagsContainer" class="tags-container">
+                  <div class="tag-item" data-tag="New Lead">
+                    <span class="tag-badge">New Lead</span>
+                    <input type="checkbox" class="tag-checkbox" value="New Lead" checked>
+                  </div>
+                </div>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline" onclick="closeCreateEventModal()">Cancelar</button>
+            <button type="button" class="btn btn-primary" onclick="createEvent()">Crear Reunión</button>
+          </div>
+        </div>
+      </div>
+      
     </body>
     </html>
   `);
