@@ -115,7 +115,7 @@ async function initDatabase() {
     
     for (const column of newColumns) {
       try {
-        await pool.query(`SELECT ${column.name} FROM contacts LIMIT 1`);
+        await pool.query('SELECT ' + column.name + ' FROM contacts LIMIT 1');
       } catch (columnError) {
         if (columnError.code === '42703') { // Column does not exist
           console.log('Adding ' + column.name + ' column to contacts table...');
@@ -712,7 +712,7 @@ app.get('/api/contacts/:contactId/attachments/:attachmentId/download', async (re
     }
     
     // Set headers for file download
-    res.setHeader('Content-Disposition', `attachment; filename="${attachment.original_filename}"`);
+    res.setHeader('Content-Disposition', 'attachment; filename="' + attachment.original_filename + '"');
     res.setHeader('Content-Type', attachment.file_type);
     
     // Stream file to client
@@ -1303,7 +1303,7 @@ app.post('/api/sync', async (req, res) => {
     });
     
     const events = response.data.items || [];
-    console.log(`Processing ${events.length} events for contact sync`);
+    console.log('Processing ' + events.length + ' events for contact sync');
     
     const result = {
       newContacts: [],
@@ -1339,7 +1339,7 @@ app.post('/api/sync', async (req, res) => {
     res.json({
       success: true,
       data: result,
-      message: `Sync completed: ${result.newContacts.length} new contacts, ${result.eventsProcessed} events processed`
+      message: 'Sync completed: ' + result.newContacts.length + ' new contacts, ' + result.eventsProcessed + ' events processed'
     });
     
   } catch (error) {
@@ -7082,7 +7082,7 @@ app.get('/', (req, res) => {
           if (!currentContactData) return;
           
           try {
-            const downloadUrl = `/api/contacts/${currentContactData.id}/attachments/${attachmentId}/download`;
+            const downloadUrl = '/api/contacts/' + currentContactData.id + '/attachments/' + attachmentId + '/download';
             // Create a temporary link and click it to trigger download
             const link = document.createElement('a');
             link.href = downloadUrl;
