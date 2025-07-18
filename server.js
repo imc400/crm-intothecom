@@ -1599,22 +1599,77 @@ app.get('/api/calendar/events', async (req, res) => {
   } catch (error) {
     console.error('Calendar events error:', error);
     
-    if (error.code === 401 || error.code === 403) {
-      // Clear expired tokens
+    // Handle authentication errors with automatic token refresh
+    if (error.code === 401 || error.code === 403 || error.message.includes('No refresh token')) {
+      console.log('Authentication error, attempting to refresh tokens...');
+      
+      try {
+        // Try to get fresh tokens from database
+        const tokenResult = await pool.query('SELECT tokens FROM google_tokens ORDER BY created_at DESC LIMIT 1');
+        if (tokenResult.rows.length > 0) {
+          const dbTokens = tokenResult.rows[0].tokens;
+          
+          // If we have a refresh token in database, try to refresh
+          if (dbTokens.refresh_token) {
+            console.log('Attempting automatic token refresh...');
+            oAuth2Client.setCredentials(dbTokens);
+            
+            // Force token refresh
+            const newTokens = await oAuth2Client.refreshAccessToken();
+            storedTokens = newTokens.credentials;
+            
+            // Save refreshed tokens back to database
+            await pool.query(
+              'UPDATE google_tokens SET tokens = $1, updated_at = CURRENT_TIMESTAMP WHERE id = (SELECT id FROM google_tokens ORDER BY created_at DESC LIMIT 1)',
+              [JSON.stringify(storedTokens)]
+            );
+            
+            console.log('✅ Tokens refreshed automatically');
+            
+            // Retry the original request
+            const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+            const response = await calendar.events.list({
+              calendarId: 'primary',
+              timeMin: timeMin.toISOString(),
+              timeMax: timeMax.toISOString(),
+              singleEvents: true,
+              orderBy: 'startTime',
+            });
+            
+            const events = response.data.items || [];
+            return res.json({
+              success: true,
+              data: events,
+              view: view,
+              timeRange: {
+                start: timeMin.toISOString(),
+                end: timeMax.toISOString()
+              }
+            });
+          }
+        }
+      } catch (refreshError) {
+        console.error('❌ Token refresh failed:', refreshError);
+      }
+      
+      // If refresh fails, clear tokens and require re-authentication
       storedTokens = null;
       if (oAuth2Client) {
         oAuth2Client.setCredentials({});
       }
-      res.status(401).json({
+      
+      return res.status(401).json({
         success: false,
-        error: 'Authentication required. Please connect to Google Calendar first.'
-      });
-    } else {
-      res.status(500).json({
-        success: false,
-        error: 'Failed to fetch calendar events'
+        error: 'Google Calendar authentication expired. Please reconnect.',
+        requiresReauth: true
       });
     }
+    
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch calendar events',
+      details: error.message
+    });
   }
 });
 
@@ -5198,7 +5253,7 @@ app.get('/', (req, res) => {
           
           if (isAuthenticated) {
             console.log('Setting auth button to authenticated state');
-            authButton.innerHTML = '<div class="connection-status connected">&#x2713; Conectado <button class="btn btn-small btn-danger" onclick="disconnectGoogle()" style="margin-left: 10px;">Desconectar</button></div>';
+            authButton.innerHTML = '<div class="connection-status connected">&#x2713; Conectado</div>';
             startAutoSync();
           } else {
             console.log('Setting auth button to unauthenticated state');
