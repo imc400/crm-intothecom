@@ -4,6 +4,7 @@ const { Pool } = require('pg');
 const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
+const multer = require('multer');
 require('dotenv').config();
 
 const app = express();
@@ -217,6 +218,21 @@ async function initDatabase() {
         console.log('Notes column added to events table successfully');
       }
     }
+    
+    // Create contact_attachments table if it doesn't exist
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS contact_attachments (
+        id SERIAL PRIMARY KEY,
+        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        filename VARCHAR(255) NOT NULL,
+        original_filename VARCHAR(255) NOT NULL,
+        file_path VARCHAR(500) NOT NULL,
+        file_size INTEGER NOT NULL,
+        file_type VARCHAR(100) NOT NULL,
+        display_name VARCHAR(255) NOT NULL,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
     
     console.log('Database initialized successfully');
     
@@ -567,6 +583,195 @@ app.put('/api/contacts/:email/tags', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to update contact tags'
+    });
+  }
+});
+
+// CONTACT ATTACHMENTS ENDPOINTS
+
+// Get attachments for a contact
+app.get('/api/contacts/:contactId/attachments', async (req, res) => {
+  const { contactId } = req.params;
+  
+  try {
+    const result = await pool.query(
+      'SELECT * FROM contact_attachments WHERE contact_id = $1 ORDER BY uploaded_at DESC',
+      [contactId]
+    );
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching attachments:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch attachments'
+    });
+  }
+});
+
+// Upload attachment for a contact
+app.post('/api/contacts/:contactId/attachments', upload.single('file'), async (req, res) => {
+  const { contactId } = req.params;
+  const { displayName } = req.body;
+  
+  try {
+    // Validate that contact exists
+    const contactCheck = await pool.query('SELECT id FROM contacts WHERE id = $1', [contactId]);
+    if (contactCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Contact not found'
+      });
+    }
+    
+    // Validate file was uploaded
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file uploaded'
+      });
+    }
+    
+    // Validate display name
+    if (!displayName || displayName.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        error: 'Display name is required'
+      });
+    }
+    
+    // Insert attachment record
+    const result = await pool.query(
+      `INSERT INTO contact_attachments 
+       (contact_id, filename, original_filename, file_path, file_size, file_type, display_name) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) 
+       RETURNING *`,
+      [
+        contactId,
+        req.file.filename,
+        req.file.originalname,
+        req.file.path,
+        req.file.size,
+        req.file.mimetype,
+        displayName.trim()
+      ]
+    );
+    
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: 'Archivo subido exitosamente'
+    });
+    
+  } catch (error) {
+    console.error('Error uploading attachment:', error);
+    
+    // Delete uploaded file if database operation failed
+    if (req.file) {
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error('Error deleting file:', err);
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      error: 'Failed to upload attachment'
+    });
+  }
+});
+
+// Download attachment
+app.get('/api/contacts/:contactId/attachments/:attachmentId/download', async (req, res) => {
+  const { contactId, attachmentId } = req.params;
+  
+  try {
+    const result = await pool.query(
+      'SELECT * FROM contact_attachments WHERE id = $1 AND contact_id = $2',
+      [attachmentId, contactId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Attachment not found'
+      });
+    }
+    
+    const attachment = result.rows[0];
+    const filePath = path.join(__dirname, 'uploads', 'contacts', attachment.filename);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'File not found on server'
+      });
+    }
+    
+    // Set headers for file download
+    res.setHeader('Content-Disposition', `attachment; filename="${attachment.original_filename}"`);
+    res.setHeader('Content-Type', attachment.file_type);
+    
+    // Stream file to client
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+    
+  } catch (error) {
+    console.error('Error downloading attachment:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to download attachment'
+    });
+  }
+});
+
+// Delete attachment
+app.delete('/api/contacts/:contactId/attachments/:attachmentId', async (req, res) => {
+  const { contactId, attachmentId } = req.params;
+  
+  try {
+    // Get attachment info before deleting
+    const result = await pool.query(
+      'SELECT * FROM contact_attachments WHERE id = $1 AND contact_id = $2',
+      [attachmentId, contactId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Attachment not found'
+      });
+    }
+    
+    const attachment = result.rows[0];
+    
+    // Delete from database
+    await pool.query(
+      'DELETE FROM contact_attachments WHERE id = $1 AND contact_id = $2',
+      [attachmentId, contactId]
+    );
+    
+    // Delete file from filesystem
+    const filePath = path.join(__dirname, 'uploads', 'contacts', attachment.filename);
+    if (fs.existsSync(filePath)) {
+      fs.unlink(filePath, (err) => {
+        if (err) console.error('Error deleting file:', err);
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Attachment deleted successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error deleting attachment:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete attachment'
     });
   }
 });
@@ -1783,8 +1988,49 @@ app.post('/api/events', async (req, res) => {
   }
 });
 
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, 'uploads', 'contacts');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    // Generate unique filename: timestamp-randomnumber-originalname
+    const timestamp = Date.now();
+    const randomNum = Math.floor(Math.random() * 1000);
+    const sanitizedOriginalName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const uniqueFilename = `${timestamp}-${randomNum}-${sanitizedOriginalName}`;
+    cb(null, uniqueFilename);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow common file types
+    const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx|xls|xlsx|ppt|pptx|txt|zip|rar/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error('Tipo de archivo no permitido'));
+    }
+  }
+});
+
 // Serve static files
 app.use(express.static('public'));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Main app route
 app.get('/', (req, res) => {
@@ -4382,6 +4628,116 @@ app.get('/', (req, res) => {
           resize: vertical;
           min-height: 120px;
         }
+
+        /* Attachments Styles */
+        .file-upload-container {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          margin-bottom: 10px;
+        }
+
+        .file-input {
+          flex: 1;
+          padding: 10px;
+          border: 1px solid var(--border-light);
+          border-radius: 8px;
+          background: var(--surface-primary);
+          color: var(--text-primary);
+          font-size: 14px;
+        }
+
+        .file-input:focus {
+          outline: none;
+          border-color: var(--primary-orange);
+          box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.1);
+        }
+
+        .attachments-list {
+          background: var(--surface-primary);
+          border: 1px solid var(--border-light);
+          border-radius: 10px;
+          padding: 15px;
+          max-height: 200px;
+          overflow-y: auto;
+        }
+
+        .attachment-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 10px;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          border-radius: 8px;
+          margin-bottom: 8px;
+          transition: all 0.3s ease;
+        }
+
+        .attachment-item:hover {
+          background: rgba(255, 107, 0, 0.05);
+          border-color: rgba(255, 107, 0, 0.2);
+          transform: translateY(-1px);
+        }
+
+        .attachment-info {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .attachment-name {
+          font-weight: 600;
+          color: var(--text-primary);
+          font-size: 14px;
+        }
+
+        .attachment-details {
+          font-size: 12px;
+          color: var(--text-secondary);
+        }
+
+        .attachment-actions {
+          display: flex;
+          gap: 5px;
+        }
+
+        .btn-attachment {
+          padding: 5px 10px;
+          border: none;
+          border-radius: 5px;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .btn-download {
+          background: var(--primary-orange);
+          color: white;
+        }
+
+        .btn-download:hover {
+          background: #e55a00;
+          transform: translateY(-1px);
+        }
+
+        .btn-delete {
+          background: #dc3545;
+          color: white;
+        }
+
+        .btn-delete:hover {
+          background: #c82333;
+          transform: translateY(-1px);
+        }
+
+        .no-attachments {
+          text-align: center;
+          color: var(--text-secondary);
+          font-style: italic;
+          padding: 20px;
+        }
         
         .form-row {
           display: flex;
@@ -4881,6 +5237,29 @@ app.get('/', (req, res) => {
               <div class="form-group">
                 <label class="form-label">Notas Internas</label>
                 <textarea id="contactNotes" class="form-textarea" placeholder="Notas sobre el contacto, seguimiento, observaciones importantes, etc." rows="4"></textarea>
+              </div>
+            </div>
+
+            <!-- Attachments Section -->
+            <div class="crm-section">
+              <h3 class="section-title">Archivos Adjuntos</h3>
+              
+              <!-- Upload Section -->
+              <div class="form-group">
+                <label class="form-label">Agregar Nuevo Archivo</label>
+                <div class="file-upload-container">
+                  <input type="file" id="attachmentFile" class="file-input" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.zip,.rar">
+                  <input type="text" id="attachmentName" class="form-input" placeholder="Nombre descriptivo (ej: Propuesta comercial)" maxlength="100">
+                  <button type="button" class="btn btn-primary btn-small" onclick="uploadAttachment()">Subir Archivo</button>
+                </div>
+              </div>
+              
+              <!-- Existing Attachments List -->
+              <div class="form-group">
+                <label class="form-label">Archivos Existentes</label>
+                <div id="attachmentsList" class="attachments-list">
+                  <!-- Attachments will be loaded here -->
+                </div>
               </div>
             </div>
           </div>
@@ -6400,6 +6779,9 @@ app.get('/', (req, res) => {
           
           // Notes
           document.getElementById('contactNotes').value = contact.notes || '';
+          
+          // Load attachments
+          loadContactAttachments(contact.id);
         }
         
         function toggleContactTagDropdown() {
@@ -6598,6 +6980,166 @@ app.get('/', (req, res) => {
             console.error('Error saving contact:', error);
             alert('Error de conexión al guardar contacto');
           }
+        }
+
+        // CONTACT ATTACHMENTS FUNCTIONS
+        
+        // Load attachments for a contact
+        async function loadContactAttachments(contactId) {
+          try {
+            const response = await fetch(`/api/contacts/${contactId}/attachments`);
+            const result = await response.json();
+            
+            if (result.success) {
+              displayAttachments(result.data);
+            } else {
+              console.error('Error loading attachments:', result.error);
+            }
+          } catch (error) {
+            console.error('Error loading attachments:', error);
+          }
+        }
+        
+        // Display attachments in the UI
+        function displayAttachments(attachments) {
+          const attachmentsList = document.getElementById('attachmentsList');
+          
+          if (attachments.length === 0) {
+            attachmentsList.innerHTML = '<div class="no-attachments">No hay archivos adjuntos</div>';
+            return;
+          }
+          
+          attachmentsList.innerHTML = attachments.map(attachment => `
+            <div class="attachment-item">
+              <div class="attachment-info">
+                <div class="attachment-name">${safeOnclick(attachment.display_name)}</div>
+                <div class="attachment-details">
+                  ${safeOnclick(attachment.original_filename)} • ${formatFileSize(attachment.file_size)} • ${formatDate(attachment.uploaded_at)}
+                </div>
+              </div>
+              <div class="attachment-actions">
+                <button class="btn-attachment btn-download" onclick="downloadAttachment(${attachment.id})">
+                  Descargar
+                </button>
+                <button class="btn-attachment btn-delete" onclick="deleteAttachment(${attachment.id})">
+                  Eliminar
+                </button>
+              </div>
+            </div>
+          `).join('');
+        }
+        
+        // Upload attachment
+        async function uploadAttachment() {
+          if (!currentContactData) {
+            alert('Error: No se ha seleccionado un contacto');
+            return;
+          }
+          
+          const fileInput = document.getElementById('attachmentFile');
+          const nameInput = document.getElementById('attachmentName');
+          
+          if (!fileInput.files[0]) {
+            alert('Por favor selecciona un archivo');
+            return;
+          }
+          
+          if (!nameInput.value.trim()) {
+            alert('Por favor ingresa un nombre descriptivo para el archivo');
+            return;
+          }
+          
+          const formData = new FormData();
+          formData.append('file', fileInput.files[0]);
+          formData.append('displayName', nameInput.value.trim());
+          
+          try {
+            const response = await fetch(`/api/contacts/${currentContactData.id}/attachments`, {
+              method: 'POST',
+              body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              alert('Archivo subido exitosamente');
+              // Clear inputs
+              fileInput.value = '';
+              nameInput.value = '';
+              // Reload attachments
+              loadContactAttachments(currentContactData.id);
+            } else {
+              alert('Error al subir archivo: ' + result.error);
+            }
+          } catch (error) {
+            console.error('Error uploading attachment:', error);
+            alert('Error de conexión al subir archivo');
+          }
+        }
+        
+        // Download attachment
+        async function downloadAttachment(attachmentId) {
+          if (!currentContactData) return;
+          
+          try {
+            const downloadUrl = `/api/contacts/${currentContactData.id}/attachments/${attachmentId}/download`;
+            // Create a temporary link and click it to trigger download
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = '';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } catch (error) {
+            console.error('Error downloading attachment:', error);
+            alert('Error al descargar archivo');
+          }
+        }
+        
+        // Delete attachment
+        async function deleteAttachment(attachmentId) {
+          if (!currentContactData) return;
+          
+          if (!confirm('¿Estás seguro de que quieres eliminar este archivo?')) {
+            return;
+          }
+          
+          try {
+            const response = await fetch(`/api/contacts/${currentContactData.id}/attachments/${attachmentId}`, {
+              method: 'DELETE'
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              alert('Archivo eliminado exitosamente');
+              // Reload attachments
+              loadContactAttachments(currentContactData.id);
+            } else {
+              alert('Error al eliminar archivo: ' + result.error);
+            }
+          } catch (error) {
+            console.error('Error deleting attachment:', error);
+            alert('Error de conexión al eliminar archivo');
+          }
+        }
+        
+        // Helper functions
+        function formatFileSize(bytes) {
+          if (bytes === 0) return '0 Bytes';
+          const k = 1024;
+          const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+          const i = Math.floor(Math.log(bytes) / Math.log(k));
+          return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        function formatDate(dateString) {
+          const date = new Date(dateString);
+          return date.toLocaleDateString('es-ES', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+          });
         }
 
         async function saveEventChanges() {
