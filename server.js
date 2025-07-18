@@ -4972,18 +4972,26 @@ app.get('/', (req, res) => {
           }
         });
 
-        // Check authentication status on page load
+        // CONSOLIDATED: Single robust auth status check
+        let authStatusChecked = false;
         async function checkAuthStatus() {
+          if (authStatusChecked) {
+            console.log('Auth status already checked, skipping...');
+            return;
+          }
+          
           try {
-            console.log('Checking auth status...');
+            console.log('=== CHECKING AUTH STATUS ===');
             const response = await fetch('/api/auth/status');
             const result = await response.json();
             
             console.log('Auth status result:', result);
             
             if (result.success && result.authenticated) {
-              console.log('User is authenticated, updating UI...');
+              console.log('✅ User is authenticated, updating UI...');
               updateAuthButton(true);
+              authStatusChecked = true;
+              
               // Load calendar events automatically if authenticated
               const activeTab = document.querySelector('.nav-item.active')?.getAttribute('data-tab');
               if (activeTab === 'calendar' || !activeTab) {
@@ -4991,31 +4999,18 @@ app.get('/', (req, res) => {
                 loadCalendarEvents('week');
               }
             } else {
-              console.log('User is not authenticated');
+              console.log('❌ User is not authenticated');
               updateAuthButton(false);
+              authStatusChecked = true;
             }
           } catch (error) {
-            console.error('Error checking auth status:', error);
+            console.error('💥 Error checking auth status:', error);
             updateAuthButton(false);
+            authStatusChecked = true;
           }
         }
         
-        // Force check auth status every 5 seconds until authenticated
-        function startAuthCheck() {
-          const checkInterval = setInterval(function() {
-            checkAuthStatus().then(() => {
-              // If authenticated, stop checking
-              fetch('/api/auth/status')
-                .then(response => response.json())
-                .then(result => {
-                  if (result.success && result.authenticated) {
-                    clearInterval(checkInterval);
-                    console.log('Authentication confirmed, stopping periodic check');
-                  }
-                });
-            });
-          }, 5000);
-        }
+        // Remove periodic check - using consolidated approach
 
         // Check only auth status without reloading events
         async function checkAuthStatusOnly() {
@@ -5138,16 +5133,14 @@ app.get('/', (req, res) => {
           console.log('DOMContentLoaded event fired');
           updateCalendarTitle();
           
-          // Ensure DOM is fully ready before checking auth
+          // CONSOLIDATED: Simple auth check 
           function waitForDOM() {
             const authButton = document.getElementById('authButton');
             if (authButton) {
-              console.log('DOM is ready, checking auth status');
+              console.log('✅ DOM is ready, checking auth status');
               checkAuthStatus();
-              // Start periodic auth check
-              startAuthCheck();
             } else {
-              console.log('DOM not ready, waiting...');
+              console.log('❌ DOM not ready, waiting...');
               setTimeout(waitForDOM, 100);
             }
           }
@@ -5163,12 +5156,7 @@ app.get('/', (req, res) => {
         });
         
         // Force auth check on window load as backup
-        window.addEventListener('load', () => {
-          console.log('Window load event - forcing auth check');
-          setTimeout(() => {
-            checkAuthStatus();
-          }, 500);
-        });
+        // REMOVED: Redundant load event - using consolidated approach only
         
         // Additional check - ensure auth button is properly set up
         function ensureAuthButtonState() {
