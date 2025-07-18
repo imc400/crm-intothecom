@@ -1676,27 +1676,52 @@ app.get('/api/financial-summary/:year/:month', async (req, res) => {
   const { year, month } = req.params;
   
   try {
-    // Get monthly billing data
-    const monthlyBillingResponse = await fetch(`http://localhost:${PORT}/api/monthly-billing/${year}/${month}`);
-    const monthlyBillingData = await monthlyBillingResponse.json();
+    // Get current UF value first
+    let currentUFValue = 37000; // Default fallback
+    try {
+      const ufResponse = await pool.query('SELECT value FROM uf_values ORDER BY date DESC LIMIT 1');
+      if (ufResponse.rows.length > 0) {
+        currentUFValue = parseFloat(ufResponse.rows[0].value);
+      }
+    } catch (ufError) {
+      console.log('UF value not found in database, using fallback:', currentUFValue);
+    }
+    
+    // Get monthly billing data directly from database
+    const monthlyBillingResult = await pool.query(`
+      SELECT 
+        c.id,
+        c.name,
+        c.email,
+        c.company,
+        c.phone,
+        c.industry,
+        c.is_active_client,
+        COALESCE(mb.adjusted_price, cc.base_monthly_price) as final_monthly_price,
+        COALESCE(mb.currency, cc.base_currency, 'CLP') as final_currency,
+        cc.base_monthly_price,
+        cc.base_currency
+      FROM contacts c
+      LEFT JOIN client_contracts cc ON c.id = cc.contact_id AND cc.is_active = true
+      LEFT JOIN monthly_billing mb ON c.id = mb.contact_id AND mb.year = $1 AND mb.month = $2
+      WHERE c.is_active_client = true OR cc.id IS NOT NULL
+      ORDER BY c.company, c.name
+    `, [year, month]);
     
     let monthlyTotalCLP = 0;
     let monthlyTotalUF = 0;
-    let monthlyClients = [];
+    const monthlyClients = monthlyBillingResult.rows;
     
-    if (monthlyBillingData.success) {
-      monthlyClients = monthlyBillingData.data;
-      monthlyBillingData.data.forEach(client => {
-        if (client.final_monthly_price) {
-          if (client.final_currency === 'UF') {
-            monthlyTotalUF += parseFloat(client.final_monthly_price);
-            monthlyTotalCLP += parseFloat(client.final_monthly_price) * 37000;
-          } else {
-            monthlyTotalCLP += parseFloat(client.final_monthly_price);
-          }
+    monthlyClients.forEach(client => {
+      if (client.final_monthly_price) {
+        if (client.final_currency === 'UF') {
+          monthlyTotalUF += parseFloat(client.final_monthly_price);
+          monthlyTotalCLP += parseFloat(client.final_monthly_price) * currentUFValue;
+        } else {
+          monthlyTotalCLP += parseFloat(client.final_monthly_price);
         }
-      });
-    }
+      }
+    });
     
     // Get project payments for the month
     const projectPaymentsResult = await pool.query(`
@@ -1718,7 +1743,7 @@ app.get('/api/financial-summary/:year/:month', async (req, res) => {
     
     projectPayments.forEach(payment => {
       if (payment.currency === 'UF') {
-        projectsTotalCLP += parseFloat(payment.amount) * 37000;
+        projectsTotalCLP += parseFloat(payment.amount) * currentUFValue;
       } else {
         projectsTotalCLP += parseFloat(payment.amount);
       }
