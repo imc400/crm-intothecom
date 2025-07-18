@@ -1717,6 +1717,7 @@ app.get('/api/auth/google', (req, res) => {
 
   const authUrl = oAuth2Client.generateAuthUrl({
     access_type: 'offline',
+    prompt: 'consent',
     scope: SCOPES,
   });
 
@@ -1759,6 +1760,19 @@ app.get('/api/auth/google/callback', async (req, res) => {
     oAuth2Client.setCredentials(tokens);
     storedTokens = tokens;
     
+    // Log token details for debugging
+    console.log('🔐 Received tokens:', {
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      tokenType: tokens.token_type,
+      expiryDate: tokens.expiry_date,
+      scopes: tokens.scope
+    });
+    
+    if (!tokens.refresh_token) {
+      console.log('⚠️  WARNING: No refresh_token received! This may cause authentication issues.');
+    }
+    
     // Persist tokens to database
     try {
       await pool.query(`
@@ -1767,12 +1781,12 @@ app.get('/api/auth/google/callback', async (req, res) => {
         ON CONFLICT (id) 
         DO UPDATE SET tokens = $1, updated_at = NOW()
       `, [JSON.stringify(tokens)]);
-      console.log('Tokens persisted to database');
+      console.log('✅ Tokens persisted to database');
     } catch (dbError) {
-      console.error('Error persisting tokens to database:', dbError);
+      console.error('❌ Error persisting tokens to database:', dbError);
     }
     
-    console.log('Google Calendar authentication successful');
+    console.log('🎉 Google Calendar authentication successful');
     
     res.send(
       '<html>' +
@@ -1824,16 +1838,38 @@ app.get('/api/auth/google/callback', async (req, res) => {
 });
 
 // DEBUG: Temporary endpoint to check OAuth configuration
-app.get('/api/auth/debug', (req, res) => {
-  res.json({
-    environment: process.env.NODE_ENV,
-    hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
-    hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
-    googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || 'https://crm-intothecom-production.up.railway.app/api/auth/google/callback',
-    hasOAuthClient: !!oAuth2Client,
-    hasStoredTokens: !!storedTokens,
-    storedTokensKeys: storedTokens ? Object.keys(storedTokens) : null
-  });
+app.get('/api/auth/debug', async (req, res) => {
+  try {
+    // Get tokens from database
+    const tokenResult = await pool.query('SELECT tokens, created_at, updated_at FROM google_tokens ORDER BY created_at DESC LIMIT 1');
+    const dbTokens = tokenResult.rows.length > 0 ? tokenResult.rows[0] : null;
+    
+    res.json({
+      environment: process.env.NODE_ENV,
+      hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
+      hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+      googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || 'https://crm-intothecom-production.up.railway.app/api/auth/google/callback',
+      hasOAuthClient: !!oAuth2Client,
+      hasStoredTokens: !!storedTokens,
+      storedTokensKeys: storedTokens ? Object.keys(storedTokens) : null,
+      databaseTokens: dbTokens ? {
+        hasAccessToken: !!dbTokens.tokens?.access_token,
+        hasRefreshToken: !!dbTokens.tokens?.refresh_token,
+        tokenType: dbTokens.tokens?.token_type,
+        expiryDate: dbTokens.tokens?.expiry_date,
+        isExpired: dbTokens.tokens?.expiry_date ? Date.now() > dbTokens.tokens.expiry_date : 'unknown',
+        createdAt: dbTokens.created_at,
+        updatedAt: dbTokens.updated_at,
+        availableKeys: dbTokens.tokens ? Object.keys(dbTokens.tokens) : null
+      } : null
+    });
+  } catch (error) {
+    console.error('Error in debug endpoint:', error);
+    res.status(500).json({
+      error: 'Failed to get debug info',
+      message: error.message
+    });
+  }
 });
 
 // Disconnect Google Calendar authentication
@@ -2050,12 +2086,25 @@ app.get('/api/calendar/events', async (req, res) => {
           
           // If we have a refresh token in database, try to refresh
           if (dbTokens.refresh_token) {
-            console.log('Attempting automatic token refresh...');
+            console.log('🔄 Attempting automatic token refresh...');
+            console.log('🔐 Current tokens state:', {
+              hasAccessToken: !!dbTokens.access_token,
+              hasRefreshToken: !!dbTokens.refresh_token,
+              expiryDate: dbTokens.expiry_date,
+              isExpired: dbTokens.expiry_date ? Date.now() > dbTokens.expiry_date : 'unknown'
+            });
+            
             oAuth2Client.setCredentials(dbTokens);
             
             // Force token refresh
             const newTokens = await oAuth2Client.refreshAccessToken();
             storedTokens = newTokens.credentials;
+            
+            console.log('🔐 New tokens received:', {
+              hasAccessToken: !!storedTokens.access_token,
+              hasRefreshToken: !!storedTokens.refresh_token,
+              expiryDate: storedTokens.expiry_date
+            });
             
             // Save refreshed tokens back to database
             await pool.query(
@@ -2063,7 +2112,7 @@ app.get('/api/calendar/events', async (req, res) => {
               [JSON.stringify(storedTokens)]
             );
             
-            console.log('✅ Tokens refreshed automatically');
+            console.log('✅ Tokens refreshed automatically and saved to database');
             
             // Retry the original request
             const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
@@ -2085,6 +2134,9 @@ app.get('/api/calendar/events', async (req, res) => {
                 end: timeMax.toISOString()
               }
             });
+          } else {
+            console.log('❌ No refresh token available in database');
+            console.log('🔐 Available tokens:', Object.keys(dbTokens));
           }
         }
       } catch (refreshError) {
