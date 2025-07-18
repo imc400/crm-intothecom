@@ -8107,7 +8107,7 @@ app.get('/', (req, res) => {
         
         // Función para cargar eventos con la vista actual
         function loadEventsWithCurrentView() {
-          loadCalendarEvents(activeView, true); // true para forzar refresh
+          loadCalendarEvents(currentView, true); // true para forzar refresh
         }
         
         // Función para manejar click en slots de la vista semana
