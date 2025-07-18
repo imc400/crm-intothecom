@@ -1456,11 +1456,27 @@ app.get('/api/calendar/events', async (req, res) => {
   }
 
   if (!storedTokens) {
-    console.log('ERROR: storedTokens not found');
-    return res.status(401).json({
-      success: false,
-      error: 'Google Calendar not authenticated'
-    });
+    console.log('ERROR: storedTokens not found, attempting to reload from database');
+    // Try to reload tokens from database
+    try {
+      const tokenResult = await pool.query('SELECT tokens FROM google_tokens ORDER BY created_at DESC LIMIT 1');
+      if (tokenResult.rows.length > 0) {
+        storedTokens = tokenResult.rows[0].tokens;
+        console.log('Tokens reloaded from database');
+      } else {
+        console.log('No tokens found in database');
+        return res.status(401).json({
+          success: false,
+          error: 'Google Calendar not authenticated'
+        });
+      }
+    } catch (dbError) {
+      console.log('Database error loading tokens:', dbError);
+      return res.status(500).json({
+        success: false,
+        error: 'Database error loading authentication tokens'
+      });
+    }
   }
 
   try {
