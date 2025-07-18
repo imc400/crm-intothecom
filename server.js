@@ -1437,24 +1437,48 @@ app.get('/api/projects/:year/:month', async (req, res) => {
     const result = await pool.query(`
       SELECT 
         p.*,
-        c.name as contact_name,
-        c.email as contact_email,
+        c.name as client_name,
+        c.email as client_email,
         c.company,
-        pp.amount as payment_amount,
-        pp.payment_date,
-        pp.payment_status,
-        pp.notes as payment_notes
+        COALESCE(SUM(CASE WHEN pp.payment_status = 'received' THEN pp.amount ELSE 0 END), 0) as paid_amount,
+        COALESCE(SUM(CASE WHEN pp.payment_status = 'pending' THEN pp.amount ELSE 0 END), 0) as pending_amount,
+        COUNT(pp.id) as payment_count
       FROM projects p
       INNER JOIN contacts c ON p.contact_id = c.id
-      LEFT JOIN project_payments pp ON p.id = pp.project_id 
-        AND pp.payment_year = $1 AND pp.payment_month = $2
-      WHERE pp.id IS NOT NULL OR p.created_at >= DATE_TRUNC('month', TO_DATE($1 || '-' || $2 || '-01', 'YYYY-MM-DD'))
+      LEFT JOIN project_payments pp ON p.id = pp.project_id
+      WHERE p.project_status = 'active'
+      GROUP BY p.id, c.name, c.email, c.company
       ORDER BY p.created_at DESC
+    `);
+    
+    const projects = result.rows.map(project => ({
+      ...project,
+      paid_amount: parseFloat(project.paid_amount),
+      pending_amount: parseFloat(project.pending_amount),
+      total_amount: parseFloat(project.total_amount)
+    }));
+    
+    // Get month-specific data
+    const monthlyIncomeResult = await pool.query(`
+      SELECT COALESCE(SUM(amount), 0) as monthly_income
+      FROM project_payments
+      WHERE payment_year = $1 AND payment_month = $2
     `, [year, month]);
+    
+    const pendingPaymentsResult = await pool.query(`
+      SELECT COALESCE(SUM(amount), 0) as pending_payments
+      FROM project_payments
+      WHERE payment_status = 'pending'
+    `);
     
     res.json({
       success: true,
-      data: result.rows,
+      data: {
+        projects: projects,
+        activeProjects: projects.length,
+        monthlyIncome: parseFloat(monthlyIncomeResult.rows[0].monthly_income),
+        pendingPayments: parseFloat(pendingPaymentsResult.rows[0].pending_payments)
+      },
       year: parseInt(year),
       month: parseInt(month)
     });
@@ -1652,56 +1676,66 @@ app.get('/api/financial-summary/:year/:month', async (req, res) => {
   const { year, month } = req.params;
   
   try {
-    // Get monthly billing totals
-    const monthlyBillingResult = await pool.query(`
-      SELECT 
-        COALESCE(SUM(
-          CASE 
-            WHEN COALESCE(mb.currency, cc.base_currency) = 'UF' THEN COALESCE(mb.adjusted_price, cc.base_monthly_price) * 37000
-            ELSE COALESCE(mb.adjusted_price, cc.base_monthly_price)
-          END
-        ), 0) as monthly_total,
-        COUNT(cc.id) as active_clients
-      FROM client_contracts cc
-      LEFT JOIN monthly_billing mb ON cc.contact_id = mb.contact_id 
-        AND mb.year = $1 AND mb.month = $2
-      WHERE cc.is_active = true
-    `, [year, month]);
+    // Get monthly billing data
+    const monthlyBillingResponse = await fetch(`http://localhost:${PORT}/api/monthly-billing/${year}/${month}`);
+    const monthlyBillingData = await monthlyBillingResponse.json();
+    
+    let monthlyTotalCLP = 0;
+    let monthlyTotalUF = 0;
+    let monthlyClients = [];
+    
+    if (monthlyBillingData.success) {
+      monthlyClients = monthlyBillingData.data;
+      monthlyBillingData.data.forEach(client => {
+        if (client.final_monthly_price) {
+          if (client.final_currency === 'UF') {
+            monthlyTotalUF += parseFloat(client.final_monthly_price);
+            monthlyTotalCLP += parseFloat(client.final_monthly_price) * 37000;
+          } else {
+            monthlyTotalCLP += parseFloat(client.final_monthly_price);
+          }
+        }
+      });
+    }
     
     // Get project payments for the month
     const projectPaymentsResult = await pool.query(`
       SELECT 
-        COALESCE(SUM(
-          CASE 
-            WHEN pp.currency = 'UF' THEN pp.amount * 37000
-            ELSE pp.amount
-          END
-        ), 0) as projects_total,
-        COUNT(DISTINCT pp.project_id) as active_projects,
-        COUNT(pp.id) as total_payments
+        pp.*,
+        p.project_name,
+        c.name as client_name,
+        c.email as client_email,
+        c.company
       FROM project_payments pp
+      INNER JOIN projects p ON pp.project_id = p.id
+      INNER JOIN contacts c ON p.contact_id = c.id
       WHERE pp.payment_year = $1 AND pp.payment_month = $2
-        AND pp.payment_status IN ('received', 'pending')
+      ORDER BY pp.payment_date DESC
     `, [year, month]);
     
-    const monthlyData = monthlyBillingResult.rows[0];
-    const projectData = projectPaymentsResult.rows[0];
+    let projectsTotalCLP = 0;
+    const projectPayments = projectPaymentsResult.rows;
     
-    const totalIncome = parseFloat(monthlyData.monthly_total) + parseFloat(projectData.projects_total);
+    projectPayments.forEach(payment => {
+      if (payment.currency === 'UF') {
+        projectsTotalCLP += parseFloat(payment.amount) * 37000;
+      } else {
+        projectsTotalCLP += parseFloat(payment.amount);
+      }
+    });
     
     res.json({
       success: true,
       data: {
-        monthly_billing: {
-          total: parseFloat(monthlyData.monthly_total),
-          clients: parseInt(monthlyData.active_clients)
+        monthlyBilling: {
+          totalCLP: monthlyTotalCLP,
+          totalUF: monthlyTotalUF,
+          clients: monthlyClients
         },
         projects: {
-          total: parseFloat(projectData.projects_total),
-          projects: parseInt(projectData.active_projects),
-          payments: parseInt(projectData.total_payments)
+          totalCLP: projectsTotalCLP,
+          payments: projectPayments
         },
-        total_income: totalIncome,
         year: parseInt(year),
         month: parseInt(month)
       }
@@ -10533,13 +10567,13 @@ app.get('/', (req, res) => {
           document.querySelectorAll('.finance-sub-tab').forEach(tab => {
             tab.classList.remove('active');
           });
-          document.querySelector(`[onclick="switchFinanceSubTab('${tabName}')"]`).classList.add('active');
+          document.querySelector('[onclick="switchFinanceSubTab(\'' + tabName + '\')"]').classList.add('active');
           
           // Update active content
           document.querySelectorAll('.finance-sub-content').forEach(content => {
             content.classList.remove('active');
           });
-          document.getElementById(`${tabName}-content`).classList.add('active');
+          document.getElementById(tabName + '-content').classList.add('active');
           
           currentActiveFinanceTab = tabName;
           
@@ -10608,7 +10642,7 @@ app.get('/', (req, res) => {
             updateMonthDisplayResumen();
             
             // Load financial summary data
-            const response = await fetch(`/api/financial-summary/${currentResumenYear}/${currentResumenMonth}`);
+            const response = await fetch('/api/financial-summary/' + currentResumenYear + '/' + currentResumenMonth);
             const data = await response.json();
             
             if (data.success) {
@@ -10635,26 +10669,24 @@ app.get('/', (req, res) => {
                   }
                 }
                 
-                row.innerHTML = `
-                  <td>Flujo Mensual</td>
-                  <td>${client.company || client.name || client.email}</td>
-                  <td>$ ${finalPrice.toLocaleString('es-CL')}</td>
-                  <td>${client.final_currency || 'CLP'}</td>
-                  <td>Activo</td>
-                `;
+                row.innerHTML = 
+                  '<td>Flujo Mensual</td>' +
+                  '<td>' + (client.company || client.name || client.email) + '</td>' +
+                  '<td>$ ' + finalPrice.toLocaleString('es-CL') + '</td>' +
+                  '<td>' + (client.final_currency || 'CLP') + '</td>' +
+                  '<td>Activo</td>';
                 tbody.appendChild(row);
               });
               
               // Add project entries
               data.data.projects.payments.forEach(payment => {
                 const row = document.createElement('tr');
-                row.innerHTML = `
-                  <td>Proyecto</td>
-                  <td>${payment.project_name}</td>
-                  <td>$ ${payment.amount.toLocaleString('es-CL')}</td>
-                  <td>${payment.currency}</td>
-                  <td>${payment.payment_status === 'pending' ? 'Pendiente' : 'Pagado'}</td>
-                `;
+                row.innerHTML = 
+                  '<td>Proyecto</td>' +
+                  '<td>' + payment.project_name + '</td>' +
+                  '<td>$ ' + payment.amount.toLocaleString('es-CL') + '</td>' +
+                  '<td>' + payment.currency + '</td>' +
+                  '<td>' + (payment.payment_status === 'pending' ? 'Pendiente' : 'Pagado') + '</td>';
                 tbody.appendChild(row);
               });
               
@@ -10673,7 +10705,7 @@ app.get('/', (req, res) => {
             updateMonthDisplayProyectos();
             
             // Load projects data
-            const response = await fetch(`/api/projects/${currentProyectosYear}/${currentProyectosMonth}`);
+            const response = await fetch('/api/projects/' + currentProyectosYear + '/' + currentProyectosMonth);
             const data = await response.json();
             
             if (data.success) {
@@ -10689,18 +10721,17 @@ app.get('/', (req, res) => {
               if (data.data.projects.length > 0) {
                 data.data.projects.forEach(project => {
                   const row = document.createElement('tr');
-                  row.innerHTML = `
-                    <td>${project.project_name}</td>
-                    <td>${project.client_name || project.client_email}</td>
-                    <td>$ ${project.total_amount.toLocaleString('es-CL')}</td>
-                    <td>$ ${project.paid_amount.toLocaleString('es-CL')}</td>
-                    <td>$ ${project.pending_amount.toLocaleString('es-CL')}</td>
-                    <td>${project.project_status === 'active' ? 'Activo' : 'Completado'}</td>
-                    <td>
-                      <button class="btn btn-sm btn-secondary" onclick="viewProjectDetails(${project.id})">Ver</button>
-                      <button class="btn btn-sm btn-primary" onclick="addProjectPayment(${project.id})">Pago</button>
-                    </td>
-                  `;
+                  row.innerHTML = 
+                    '<td>' + project.project_name + '</td>' +
+                    '<td>' + (project.client_name || project.client_email) + '</td>' +
+                    '<td>$ ' + project.total_amount.toLocaleString('es-CL') + '</td>' +
+                    '<td>$ ' + project.paid_amount.toLocaleString('es-CL') + '</td>' +
+                    '<td>$ ' + project.pending_amount.toLocaleString('es-CL') + '</td>' +
+                    '<td>' + (project.project_status === 'active' ? 'Activo' : 'Completado') + '</td>' +
+                    '<td>' +
+                      '<button class="btn btn-sm btn-secondary" onclick="viewProjectDetails(' + project.id + ')">Ver</button>' +
+                      '<button class="btn btn-sm btn-primary" onclick="addProjectPayment(' + project.id + ')">Pago</button>' +
+                    '</td>';
                   tbody.appendChild(row);
                 });
               } else {
