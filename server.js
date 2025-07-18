@@ -248,6 +248,29 @@ async function initDatabase() {
       )
     `);
     console.log('contact_tag_history table created successfully');
+
+    // Add financial fields to contacts table
+    console.log('Adding financial fields to contacts table...');
+    const financialColumns = [
+      { name: 'monthly_price', type: 'DECIMAL(10,2)' },
+      { name: 'currency', type: 'VARCHAR(10) DEFAULT \'CLP\'' },
+      { name: 'contract_start_date', type: 'DATE' },
+      { name: 'is_active_client', type: 'BOOLEAN DEFAULT FALSE' }
+    ];
+
+    for (const column of financialColumns) {
+      try {
+        await pool.query('SELECT ' + column.name + ' FROM contacts LIMIT 1');
+        console.log(column.name + ' column already exists');
+      } catch (columnError) {
+        if (columnError.code === '42703') { // Column does not exist
+          console.log('Adding ' + column.name + ' column to contacts table...');
+          await pool.query('ALTER TABLE contacts ADD COLUMN ' + column.name + ' ' + column.type);
+          console.log(column.name + ' column added successfully');
+        }
+      }
+    }
+    console.log('Financial fields added to contacts table successfully');
     
     console.log('Database initialized successfully');
     
@@ -429,9 +452,46 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Get current UF value from Chilean API
+app.get('/api/uf-value', async (req, res) => {
+  try {
+    const response = await fetch('https://mindicador.cl/api/uf');
+    const data = await response.json();
+    
+    if (data && data.serie && data.serie.length > 0) {
+      const latestUF = data.serie[0];
+      res.json({
+        success: true,
+        data: {
+          value: latestUF.valor,
+          date: latestUF.fecha,
+          currency: 'CLP'
+        }
+      });
+    } else {
+      res.json({
+        success: false,
+        error: 'No UF data available'
+      });
+    }
+  } catch (error) {
+    console.error('Error fetching UF value:', error);
+    res.json({
+      success: false,
+      error: 'Failed to fetch UF value',
+      fallback: 37000 // Fallback value in case of API failure
+    });
+  }
+});
+
 // Get all contacts
 app.get('/api/contacts', async (req, res) => {
   try {
+    const { activeClients } = req.query;
+    
+    // Build WHERE clause for active clients filter
+    const whereClause = activeClients === 'true' ? 'WHERE c.is_active_client = true' : '';
+    
     // Get contacts with days since 'propuesta enviada' tag was assigned
     const result = await pool.query(`
       SELECT 
@@ -443,6 +503,7 @@ app.get('/api/contacts', async (req, res) => {
         END as days_since_proposal
       FROM contacts c
       LEFT JOIN contact_tag_history th ON c.id = th.contact_id AND th.tag_name = 'propuesta enviada'
+      ${whereClause}
       ORDER BY 
         CASE WHEN c.tags @> ARRAY['propuesta enviada']::text[] THEN days_since_proposal END DESC NULLS LAST,
         c.created_at DESC
@@ -450,6 +511,7 @@ app.get('/api/contacts', async (req, res) => {
     
     res.json({
       success: true,
+      contacts: result.rows || [],
       data: result.rows || [],
       count: result.rows ? result.rows.length : 0
     });
@@ -457,9 +519,13 @@ app.get('/api/contacts', async (req, res) => {
     console.error('Error fetching contacts:', error);
     // Fallback to simple query if the complex one fails
     try {
-      const fallbackResult = await pool.query('SELECT * FROM contacts ORDER BY created_at DESC');
+      const { activeClients } = req.query;
+      const whereClause = activeClients === 'true' ? 'WHERE is_active_client = true' : '';
+      
+      const fallbackResult = await pool.query(`SELECT * FROM contacts ${whereClause} ORDER BY created_at DESC`);
       res.json({
         success: true,
+        contacts: fallbackResult.rows || [],
         data: fallbackResult.rows || [],
         count: fallbackResult.rows ? fallbackResult.rows.length : 0
       });
@@ -467,6 +533,7 @@ app.get('/api/contacts', async (req, res) => {
       console.error('Fallback query also failed:', fallbackError);
       res.json({
         success: true,
+        contacts: [],
         data: [],
         count: 0
       });
@@ -649,7 +716,11 @@ app.post('/api/contacts/:contactId/update', async (req, res) => {
     status, 
     priority, 
     notes, 
-    tags 
+    tags,
+    monthly_price,
+    currency,
+    contract_start_date,
+    active_client
   } = req.body;
   
   try {
@@ -658,6 +729,28 @@ app.post('/api/contacts/:contactId/update', async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Tags must be an array'
+      });
+    }
+    
+    // Validate financial fields
+    if (monthly_price && (isNaN(monthly_price) || monthly_price < 0)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Monthly price must be a valid positive number'
+      });
+    }
+    
+    if (currency && !['CLP', 'UF', 'USD', 'EUR'].includes(currency)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Currency must be one of: CLP, UF, USD, EUR'
+      });
+    }
+    
+    if (contract_start_date && !Date.parse(contract_start_date)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Contract start date must be a valid date'
       });
     }
     
@@ -674,8 +767,12 @@ app.post('/api/contacts/:contactId/update', async (req, res) => {
           priority = $8, 
           notes = $9, 
           tags = $10,
+          monthly_price = $11,
+          currency = $12,
+          contract_start_date = $13,
+          is_active_client = $14,
           updated_at = CURRENT_TIMESTAMP
-      WHERE id = $11
+      WHERE id = $15
       RETURNING *
     `;
     
@@ -690,6 +787,10 @@ app.post('/api/contacts/:contactId/update', async (req, res) => {
       priority || 'Medium',
       notes || null,
       tags || [],
+      monthly_price || null,
+      currency || 'CLP',
+      contract_start_date || null,
+      active_client || false,
       contactId
     ];
     
@@ -5244,6 +5345,135 @@ app.get('/', (req, res) => {
           }
         }
         
+        /* Finance Tab Styles */
+        .finance-container {
+          padding: 20px;
+          max-width: 1200px;
+          margin: 0 auto;
+        }
+        
+        .finance-header {
+          margin-bottom: 30px;
+        }
+        
+        .finance-header h3 {
+          color: var(--text-primary);
+          margin-bottom: 20px;
+          font-size: 1.5rem;
+          font-weight: 600;
+        }
+        
+        .finance-summary {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 20px;
+          margin-bottom: 30px;
+        }
+        
+        .summary-card {
+          background: var(--card-bg);
+          border: 1px solid var(--border-color);
+          border-radius: 12px;
+          padding: 20px;
+          text-align: center;
+          backdrop-filter: blur(10px);
+          transition: all 0.3s ease;
+        }
+        
+        .summary-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+        
+        .summary-title {
+          color: var(--text-secondary);
+          font-size: 0.9rem;
+          margin-bottom: 8px;
+          font-weight: 500;
+        }
+        
+        .summary-amount {
+          color: var(--text-primary);
+          font-size: 1.8rem;
+          font-weight: 700;
+          margin-bottom: 0;
+        }
+        
+        .finance-table-container {
+          background: var(--card-bg);
+          border: 1px solid var(--border-color);
+          border-radius: 12px;
+          overflow: hidden;
+          backdrop-filter: blur(10px);
+        }
+        
+        .finance-table {
+          width: 100%;
+          border-collapse: collapse;
+          background: transparent;
+        }
+        
+        .finance-table th {
+          background: var(--header-bg);
+          color: var(--text-primary);
+          font-weight: 600;
+          padding: 15px 12px;
+          text-align: left;
+          border-bottom: 2px solid var(--border-color);
+          font-size: 0.9rem;
+        }
+        
+        .finance-table td {
+          padding: 12px;
+          border-bottom: 1px solid var(--border-color);
+          color: var(--text-primary);
+        }
+        
+        .finance-table tr:hover {
+          background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .finance-table .no-data {
+          text-align: center;
+          color: var(--text-secondary);
+          font-style: italic;
+          padding: 40px;
+        }
+        
+        .finance-actions {
+          display: flex;
+          gap: 8px;
+        }
+        
+        .finance-actions .btn {
+          padding: 4px 8px;
+          font-size: 0.8rem;
+          border-radius: 4px;
+        }
+        
+        .currency-badge {
+          display: inline-block;
+          padding: 2px 6px;
+          border-radius: 4px;
+          font-size: 0.8rem;
+          font-weight: 500;
+        }
+        
+        .currency-badge.clp {
+          background: var(--success-light);
+          color: var(--success-dark);
+        }
+        
+        .currency-badge.uf {
+          background: var(--warning-light);
+          color: var(--warning-dark);
+        }
+        
+        .months-active {
+          font-weight: 600;
+          color: var(--primary-color);
+        }
+        
       </style>
     </head>
     <body>
@@ -5270,6 +5500,10 @@ app.get('/', (req, res) => {
             <a href="#" class="nav-item" data-tab="sync">
               <span class="nav-icon">⟲</span>
               <span>Sincronización</span>
+            </a>
+            <a href="#" class="nav-item" data-tab="finanzas">
+              <span class="nav-icon">$</span>
+              <span>Finanzas</span>
             </a>
           </nav>
         </div>
@@ -5393,6 +5627,49 @@ app.get('/', (req, res) => {
                 Sincronizar Ahora
               </button>
             </div>
+            
+            <div id="finanzas-tab" class="tab-content" style="display: none;">
+              <div class="finance-container">
+                <div class="finance-header">
+                  <h3>Flujo de Caja Mensual</h3>
+                  <div class="finance-summary">
+                    <div class="summary-card">
+                      <div class="summary-title">Total Mensual CLP</div>
+                      <div class="summary-amount" id="totalCLP">$ 0</div>
+                    </div>
+                    <div class="summary-card">
+                      <div class="summary-title">Total Mensual UF</div>
+                      <div class="summary-amount" id="totalUF">0 UF</div>
+                    </div>
+                    <div class="summary-card">
+                      <div class="summary-title">UF Actual</div>
+                      <div class="summary-amount" id="currentUF">Cargando...</div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="finance-table-container">
+                  <table class="finance-table">
+                    <thead>
+                      <tr>
+                        <th>Cliente</th>
+                        <th>Email</th>
+                        <th>Precio Mensual</th>
+                        <th>Moneda</th>
+                        <th>Fecha Inicio</th>
+                        <th>Meses Activo</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody id="financeTableBody">
+                      <tr>
+                        <td colspan="7" class="no-data">Cargando datos financieros...</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -5503,6 +5780,44 @@ app.get('/', (req, res) => {
                 <div class="form-group">
                   <label class="form-label">Última Reunión</label>
                   <input type="date" id="contactLastSeen" class="form-input" readonly style="background: #f7fafc;">
+                </div>
+              </div>
+            </div>
+
+            <!-- Financial Information Section -->
+            <div class="crm-section">
+              <h3 class="section-title">Información Financiera</h3>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Precio Mensual</label>
+                  <input type="number" id="contactMonthlyPrice" class="form-input" placeholder="0.00" step="0.01" min="0">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Moneda</label>
+                  <select id="contactCurrency" class="form-select">
+                    <option value="">Seleccionar moneda</option>
+                    <option value="CLP">CLP ($)</option>
+                    <option value="UF">UF (Unidad de Fomento)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="MXN">MXN ($)</option>
+                    <option value="ARS">ARS ($)</option>
+                    <option value="COP">COP ($)</option>
+                    <option value="PEN">PEN (S/)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Fecha Inicio Contrato</label>
+                  <input type="date" id="contactContractStartDate" class="form-input">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Estado del Cliente</label>
+                  <div class="checkbox-container">
+                    <input type="checkbox" id="contactActiveClient" class="form-checkbox">
+                    <label for="contactActiveClient" class="checkbox-label">Cliente Activo</label>
+                  </div>
                 </div>
               </div>
             </div>
@@ -5786,7 +6101,8 @@ app.get('/', (req, res) => {
               'calendar': 'Calendario',
               'contacts': 'Contactos',
               'funnel': 'Embudo',
-              'sync': 'Sincronización'
+              'sync': 'Sincronización',
+              'finanzas': 'Finanzas'
             };
             document.getElementById('pageTitle').textContent = titles[tabId];
             
@@ -5795,6 +6111,8 @@ app.get('/', (req, res) => {
               loadContacts();
             } else if (tabId === 'funnel') {
               loadFunnelData();
+            } else if (tabId === 'finanzas') {
+              loadFinanceData();
             }
           });
         });
@@ -7054,6 +7372,12 @@ app.get('/', (req, res) => {
           document.getElementById('contactMeetingCount').value = contact.meeting_count || 0;
           document.getElementById('contactLastSeen').value = contact.last_seen || '';
           
+          // Financial Information
+          document.getElementById('contactMonthlyPrice').value = contact.monthly_price || '';
+          document.getElementById('contactCurrency').value = contact.currency || '';
+          document.getElementById('contactContractStartDate').value = contact.contract_start_date || '';
+          document.getElementById('contactActiveClient').checked = contact.active_client || false;
+          
           // Notes
           document.getElementById('contactNotes').value = contact.notes || '';
           
@@ -7204,6 +7528,12 @@ app.get('/', (req, res) => {
           const notes = document.getElementById('contactNotes').value;
           const tags = currentContactData.tags || [];
           
+          // Financial Information
+          const monthlyPrice = document.getElementById('contactMonthlyPrice').value;
+          const currency = document.getElementById('contactCurrency').value;
+          const contractStartDate = document.getElementById('contactContractStartDate').value;
+          const activeClient = document.getElementById('contactActiveClient').checked;
+          
           try {
             const response = await fetch('/api/contacts/' + currentContactData.id + '/update', {
               method: 'POST',
@@ -7218,7 +7548,11 @@ app.get('/', (req, res) => {
                 website: website,
                 industry: industry,
                 notes: notes,
-                tags: tags
+                tags: tags,
+                monthly_price: monthlyPrice,
+                currency: currency,
+                contract_start_date: contractStartDate,
+                active_client: activeClient
               })
             });
             
@@ -8725,6 +9059,144 @@ app.get('/', (req, res) => {
 
         function refreshFunnelData() {
           loadFunnelData();
+        }
+
+        // Finance Tab Functions
+        async function loadFinanceData() {
+          try {
+            // Load current UF value
+            await loadCurrentUFValue();
+            
+            // Load active clients data
+            await loadActiveClientsData();
+            
+            // Calculate totals
+            calculateFinanceTotals();
+            
+          } catch (error) {
+            console.error('Error loading finance data:', error);
+            showStatus('Error cargando datos financieros', 'error');
+          }
+        }
+
+        async function loadCurrentUFValue() {
+          try {
+            const response = await fetch('/api/uf-value');
+            const data = await response.json();
+            
+            const currentUFElement = document.getElementById('currentUF');
+            if (data.success) {
+              currentUFElement.textContent = '$ ' + data.data.value.toLocaleString('es-CL');
+            } else {
+              currentUFElement.textContent = '$ ' + data.fallback.toLocaleString('es-CL');
+            }
+          } catch (error) {
+            console.error('Error loading UF value:', error);
+            document.getElementById('currentUF').textContent = 'Error';
+          }
+        }
+
+        async function loadActiveClientsData() {
+          try {
+            const response = await fetch('/api/contacts?activeClients=true');
+            const data = await response.json();
+            
+            const tbody = document.getElementById('financeTableBody');
+            
+            if (data.success && data.contacts.length > 0) {
+              tbody.innerHTML = '';
+              
+              data.contacts.forEach(contact => {
+                const row = document.createElement('tr');
+                
+                // Calculate months active
+                const monthsActive = calculateMonthsActive(contact.contract_start_date);
+                
+                row.innerHTML = 
+                  '<td>' + (contact.name || 'Sin nombre') + '</td>' +
+                  '<td>' + contact.email + '</td>' +
+                  '<td>' + (contact.monthly_price ? '$' + contact.monthly_price.toLocaleString('es-CL') : 'Sin precio') + '</td>' +
+                  '<td>' +
+                    '<span class="currency-badge ' + (contact.currency ? contact.currency.toLowerCase() : 'clp') + '">' + (contact.currency || 'CLP') + '</span>' +
+                  '</td>' +
+                  '<td>' + (contact.contract_start_date ? formatDate(contact.contract_start_date) : 'Sin fecha') + '</td>' +
+                  '<td><span class="months-active">' + monthsActive + ' meses</span></td>' +
+                  '<td>' +
+                    '<div class="finance-actions">' +
+                      '<button class="btn btn-sm btn-primary" onclick="editFinanceData(' + contact.id + ')">' +
+                        'Editar' +
+                      '</button>' +
+                    '</div>' +
+                  '</td>';
+                
+                tbody.appendChild(row);
+              });
+            } else {
+              tbody.innerHTML = '<tr><td colspan="7" class="no-data">No hay clientes activos con datos financieros</td></tr>';
+            }
+          } catch (error) {
+            console.error('Error loading active clients:', error);
+            document.getElementById('financeTableBody').innerHTML = '<tr><td colspan="7" class="no-data">Error cargando datos</td></tr>';
+          }
+        }
+
+        function calculateMonthsActive(startDate) {
+          if (!startDate) return 0;
+          
+          const start = new Date(startDate);
+          const now = new Date();
+          
+          const months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+          return Math.max(0, months);
+        }
+
+        function formatDate(dateString) {
+          if (!dateString) return '';
+          const date = new Date(dateString);
+          return date.toLocaleDateString('es-CL');
+        }
+
+        async function calculateFinanceTotals() {
+          try {
+            const response = await fetch('/api/contacts?activeClients=true');
+            const data = await response.json();
+            
+            if (data.success) {
+              let totalCLP = 0;
+              let totalUF = 0;
+              
+              data.contacts.forEach(contact => {
+                if (contact.monthly_price) {
+                  if (contact.currency === 'UF') {
+                    totalUF += parseFloat(contact.monthly_price);
+                  } else {
+                    totalCLP += parseFloat(contact.monthly_price);
+                  }
+                }
+              });
+              
+              document.getElementById('totalCLP').textContent = '$ ' + totalCLP.toLocaleString('es-CL');
+              document.getElementById('totalUF').textContent = totalUF.toLocaleString('es-CL', { minimumFractionDigits: 2 }) + ' UF';
+            }
+          } catch (error) {
+            console.error('Error calculating totals:', error);
+          }
+        }
+
+        function editFinanceData(contactId) {
+          // This will integrate with the existing contact modal
+          // For now, we'll open the regular contact modal
+          fetch('/api/contacts/' + contactId)
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                openContactModal(data.contact);
+              }
+            })
+            .catch(error => {
+              console.error('Error loading contact:', error);
+              showStatus('Error cargando contacto', 'error');
+            });
         }
 
         // Override the original loadContacts function to use the new filtering version
