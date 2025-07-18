@@ -1442,7 +1442,13 @@ app.get('/api/auth/status', async (req, res) => {
 
 // Google Calendar Events endpoint
 app.get('/api/calendar/events', async (req, res) => {
+  console.log('=== DEBUG: Calendar events endpoint called ===');
+  console.log('oAuth2Client exists:', !!oAuth2Client);
+  console.log('storedTokens exists:', !!storedTokens);
+  console.log('Request query:', req.query);
+  
   if (!oAuth2Client) {
+    console.log('ERROR: oAuth2Client not configured');
     return res.status(500).json({
       success: false,
       error: 'Google authentication not configured'
@@ -1450,6 +1456,7 @@ app.get('/api/calendar/events', async (req, res) => {
   }
 
   if (!storedTokens) {
+    console.log('ERROR: storedTokens not found');
     return res.status(401).json({
       success: false,
       error: 'Google Calendar not authenticated'
@@ -1464,10 +1471,14 @@ app.get('/api/calendar/events', async (req, res) => {
     const view = req.query.view || 'week';
     const dateParam = req.query.date;
     
+    console.log('View:', view, 'Date param:', dateParam);
+    
     const now = dateParam ? new Date(dateParam) : new Date();
+    console.log('Parsed date:', now, 'Is valid:', !isNaN(now.getTime()));
     
     // Validate date parameter
     if (dateParam && isNaN(now.getTime())) {
+      console.log('ERROR: Invalid date parameter');
       return res.status(400).json({
         success: false,
         error: 'Invalid date parameter provided'
