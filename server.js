@@ -1222,6 +1222,7 @@ app.get('/api/monthly-billing/:year/:month', async (req, res) => {
         c.id as contact_id,
         c.name,
         c.email,
+        c.company,
         cc.base_monthly_price,
         cc.base_currency,
         cc.contract_start_date,
@@ -1238,7 +1239,7 @@ app.get('/api/monthly-billing/:year/:month', async (req, res) => {
       LEFT JOIN monthly_billing mb ON c.id = mb.contact_id 
         AND mb.year = $1 AND mb.month = $2
       WHERE cc.is_active = true
-      ORDER BY c.name
+      ORDER BY COALESCE(c.company, c.name)
     `, [year, month]);
     
     res.json({
@@ -5807,6 +5808,101 @@ app.get('/', (req, res) => {
           color: var(--text-secondary);
         }
         
+        /* Monthly Billing Modal Styles */
+        .billing-modal {
+          max-width: 600px;
+          width: 90%;
+        }
+        
+        .billing-info-section {
+          background: var(--surface-secondary);
+          border-radius: 12px;
+          padding: 20px;
+          margin-bottom: 25px;
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 20px;
+        }
+        
+        .billing-client-info h3 {
+          color: var(--text-primary);
+          margin: 0 0 8px 0;
+          font-size: 1.3rem;
+          font-weight: 600;
+        }
+        
+        .billing-client-info p {
+          color: var(--text-secondary);
+          margin: 0 0 5px 0;
+          font-size: 0.9rem;
+        }
+        
+        .billing-summary {
+          text-align: right;
+          min-width: 200px;
+        }
+        
+        .billing-summary-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+          padding: 8px 0;
+        }
+        
+        .billing-summary-item.final-price {
+          border-top: 2px solid var(--border-color);
+          padding-top: 12px;
+          margin-top: 12px;
+          font-weight: 600;
+        }
+        
+        .summary-label {
+          color: var(--text-secondary);
+          font-size: 0.9rem;
+          margin-right: 15px;
+        }
+        
+        .summary-value {
+          color: var(--text-primary);
+          font-weight: 600;
+          font-size: 1rem;
+        }
+        
+        .billing-form-section {
+          background: var(--card-bg);
+          border-radius: 12px;
+          padding: 20px;
+          border: 1px solid var(--border-color);
+        }
+        
+        .finance-actions .btn {
+          background: var(--primary-color);
+          color: white;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 6px;
+          font-size: 0.85rem;
+          font-weight: 500;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        
+        .finance-actions .btn:hover {
+          background: var(--primary-hover);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(255, 107, 0, 0.3);
+        }
+        
+        .finance-actions .btn:before {
+          content: "✏️";
+          font-size: 0.8rem;
+        }
+        
       </style>
     </head>
     <body>
@@ -5992,7 +6088,7 @@ app.get('/', (req, res) => {
                   <table class="finance-table">
                     <thead>
                       <tr>
-                        <th>Cliente</th>
+                        <th>Empresa</th>
                         <th>Email</th>
                         <th>Precio Base</th>
                         <th>Ajuste Mensual</th>
@@ -6201,6 +6297,93 @@ app.get('/', (req, res) => {
           <div class="modal-footer">
             <button class="btn-cancel" onclick="closeContactModal()">Cancelar</button>
             <button class="btn-save" onclick="saveContactDetails()">Guardar Cambios</button>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Monthly Billing Modal -->
+      <div id="monthlyBillingModal" class="modal">
+        <div class="modal-content billing-modal">
+          <div class="modal-header">
+            <h2>Ajuste de Facturación Mensual</h2>
+            <span class="close-btn" onclick="closeMonthlyBillingModal()">&times;</span>
+          </div>
+          
+          <div class="modal-body">
+            <div class="billing-info-section">
+              <div class="billing-client-info">
+                <h3 id="billingClientName">Empresa</h3>
+                <p id="billingClientEmail">email@empresa.com</p>
+                <p id="billingPeriod">Julio 2025</p>
+              </div>
+              
+              <div class="billing-summary">
+                <div class="billing-summary-item">
+                  <span class="summary-label">Precio Base del Contrato:</span>
+                  <span class="summary-value" id="billingBasePrice">$0</span>
+                </div>
+                <div class="billing-summary-item">
+                  <span class="summary-label">Ajuste Actual:</span>
+                  <span class="summary-value" id="billingCurrentAdjustment">$0</span>
+                </div>
+                <div class="billing-summary-item final-price">
+                  <span class="summary-label">Precio Final:</span>
+                  <span class="summary-value" id="billingFinalPrice">$0</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="billing-form-section">
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Precio Ajustado</label>
+                  <input type="number" id="billingAdjustedPrice" class="form-input" placeholder="0.00" step="0.01" min="0">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Moneda</label>
+                  <select id="billingCurrency" class="form-select">
+                    <option value="CLP">CLP ($)</option>
+                    <option value="UF">UF (Unidad de Fomento)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div class="form-row">
+                <div class="form-group">
+                  <label class="form-label">Motivo del Ajuste</label>
+                  <select id="billingAdjustmentReason" class="form-select">
+                    <option value="">Seleccionar motivo</option>
+                    <option value="Meta cumplida">Meta cumplida</option>
+                    <option value="Bonus por resultados">Bonus por resultados</option>
+                    <option value="Descuento temporal">Descuento temporal</option>
+                    <option value="Cambio de contrato">Cambio de contrato</option>
+                    <option value="Ajuste por inflación">Ajuste por inflación</option>
+                    <option value="Servicio adicional">Servicio adicional</option>
+                    <option value="Otro">Otro</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Estado de Facturación</label>
+                  <select id="billingStatus" class="form-select">
+                    <option value="pending">Pendiente</option>
+                    <option value="billed">Facturado</option>
+                    <option value="paid">Pagado</option>
+                  </select>
+                </div>
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label">Motivo Personalizado</label>
+                <textarea id="billingCustomReason" class="form-textarea" placeholder="Describe el motivo del ajuste (opcional)" rows="3"></textarea>
+              </div>
+            </div>
+          </div>
+          
+          <div class="modal-footer">
+            <button class="btn-cancel" onclick="closeMonthlyBillingModal()">Cancelar</button>
+            <button class="btn-save" onclick="saveMonthlyBilling()">Guardar Cambios</button>
           </div>
         </div>
       </div>
@@ -9529,7 +9712,7 @@ app.get('/', (req, res) => {
                 }
                 
                 row.innerHTML = 
-                  '<td>' + (client.name || 'Sin nombre') + '</td>' +
+                  '<td>' + (client.company || client.name || 'Sin empresa') + '</td>' +
                   '<td>' + client.email + '</td>' +
                   '<td>' + basePriceDisplay + '</td>' +
                   '<td><span class="adjustment-amount ' + adjustmentClass + '">' + adjustmentDisplay + '</span></td>' +
@@ -9606,17 +9789,128 @@ app.get('/', (req, res) => {
           }
         }
         
-        function openMonthlyBillingModal(contactId) {
-          // For now, show a simple prompt - we'll create a proper modal later
-          const adjustedPrice = prompt('Ingrese el precio ajustado para este mes:');
-          const adjustmentReason = prompt('Motivo del ajuste:');
+        let currentBillingContactId = null;
+        let currentBillingData = null;
+        
+        async function openMonthlyBillingModal(contactId) {
+          currentBillingContactId = contactId;
           
-          if (adjustedPrice !== null && adjustmentReason !== null) {
-            updateMonthlyBilling(contactId, adjustedPrice, adjustmentReason);
+          try {
+            // Get current billing data
+            const response = await fetch('/api/monthly-billing/' + currentFinanceYear + '/' + currentFinanceMonth);
+            const data = await response.json();
+            
+            if (data.success) {
+              const clientData = data.data.find(client => client.contact_id === contactId);
+              
+              if (clientData) {
+                currentBillingData = clientData;
+                populateMonthlyBillingModal(clientData);
+                document.getElementById('monthlyBillingModal').style.display = 'block';
+              } else {
+                showStatus('Cliente no encontrado', 'error');
+              }
+            } else {
+              showStatus('Error cargando datos de facturación', 'error');
+            }
+          } catch (error) {
+            console.error('Error opening monthly billing modal:', error);
+            showStatus('Error abriendo modal de facturación', 'error');
           }
         }
         
-        async function updateMonthlyBilling(contactId, adjustedPrice, adjustmentReason) {
+        function populateMonthlyBillingModal(clientData) {
+          // Update client info
+          document.getElementById('billingClientName').textContent = clientData.company || clientData.name || 'Sin empresa';
+          document.getElementById('billingClientEmail').textContent = clientData.email;
+          
+          // Update period
+          const monthNames = [
+            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+          ];
+          const monthDisplay = monthNames[currentFinanceMonth - 1] + ' ' + currentFinanceYear;
+          document.getElementById('billingPeriod').textContent = monthDisplay;
+          
+          // Calculate and display prices
+          let basePriceInCLP = 0;
+          let basePriceDisplay = 'Sin precio';
+          
+          if (clientData.base_monthly_price) {
+            if (clientData.base_currency === 'UF') {
+              basePriceInCLP = clientData.base_monthly_price * currentUFValue;
+              basePriceDisplay = '$' + basePriceInCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 }) + ' (' + clientData.base_monthly_price + ' UF)';
+            } else {
+              basePriceInCLP = clientData.base_monthly_price;
+              basePriceDisplay = '$' + basePriceInCLP.toLocaleString('es-CL');
+            }
+          }
+          
+          document.getElementById('billingBasePrice').textContent = basePriceDisplay;
+          
+          // Current adjustment
+          const adjustmentAmount = clientData.adjustment_amount || 0;
+          let adjustmentDisplay = '$0';
+          
+          if (adjustmentAmount > 0) {
+            adjustmentDisplay = '+$' + adjustmentAmount.toLocaleString('es-CL');
+          } else if (adjustmentAmount < 0) {
+            adjustmentDisplay = '-$' + Math.abs(adjustmentAmount).toLocaleString('es-CL');
+          }
+          
+          document.getElementById('billingCurrentAdjustment').textContent = adjustmentDisplay;
+          
+          // Final price
+          let finalPriceInCLP = 0;
+          let finalPriceDisplay = 'Sin precio';
+          
+          if (clientData.final_price) {
+            if (clientData.final_currency === 'UF') {
+              finalPriceInCLP = clientData.final_price * currentUFValue;
+              finalPriceDisplay = '$' + finalPriceInCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 }) + ' (' + clientData.final_price + ' UF)';
+            } else {
+              finalPriceInCLP = clientData.final_price;
+              finalPriceDisplay = '$' + finalPriceInCLP.toLocaleString('es-CL');
+            }
+          }
+          
+          document.getElementById('billingFinalPrice').textContent = finalPriceDisplay;
+          
+          // Populate form fields
+          document.getElementById('billingAdjustedPrice').value = clientData.final_price || clientData.base_monthly_price || '';
+          document.getElementById('billingCurrency').value = clientData.final_currency || clientData.base_currency || 'CLP';
+          document.getElementById('billingAdjustmentReason').value = clientData.adjustment_reason || '';
+          document.getElementById('billingStatus').value = clientData.billing_status || 'pending';
+          document.getElementById('billingCustomReason').value = '';
+        }
+        
+        function closeMonthlyBillingModal() {
+          document.getElementById('monthlyBillingModal').style.display = 'none';
+          currentBillingContactId = null;
+          currentBillingData = null;
+        }
+        
+        async function saveMonthlyBilling() {
+          if (!currentBillingContactId) return;
+          
+          const adjustedPrice = document.getElementById('billingAdjustedPrice').value;
+          const currency = document.getElementById('billingCurrency').value;
+          const adjustmentReason = document.getElementById('billingAdjustmentReason').value;
+          const customReason = document.getElementById('billingCustomReason').value;
+          const billingStatus = document.getElementById('billingStatus').value;
+          
+          const finalReason = customReason || adjustmentReason || 'Precio base del contrato';
+          
+          if (!adjustedPrice) {
+            showStatus('Por favor ingrese un precio ajustado', 'error');
+            return;
+          }
+          
+          await updateMonthlyBilling(currentBillingContactId, adjustedPrice, finalReason, currency, billingStatus);
+          closeMonthlyBillingModal();
+        }
+        
+        async function updateMonthlyBilling(contactId, adjustedPrice, adjustmentReason, currency, billingStatus) {
           try {
             const response = await fetch('/api/monthly-billing/' + contactId + '/' + currentFinanceYear + '/' + currentFinanceMonth, {
               method: 'POST',
@@ -9625,9 +9919,10 @@ app.get('/', (req, res) => {
               },
               body: JSON.stringify({
                 adjusted_price: parseFloat(adjustedPrice),
-                currency: 'CLP', // Default, can be modified later
+                currency: currency || 'CLP',
                 adjustment_reason: adjustmentReason,
-                adjustment_type: 'manual'
+                adjustment_type: 'manual',
+                billing_status: billingStatus || 'pending'
               })
             });
             
