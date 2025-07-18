@@ -1090,7 +1090,7 @@ app.post('/api/sync', async (req, res) => {
         if (event.attendees && event.attendees.length > 0) {
           for (const attendee of event.attendees) {
             if (attendee.email && attendee.email.includes('@')) {
-              await processContactFromEvent(attendee, event, result);
+              await processContactFromEvent(attendee, event, result, null);
             }
           }
         }
@@ -1125,7 +1125,7 @@ app.post('/api/sync', async (req, res) => {
 });
 
 // Helper function to process contacts from events
-async function processContactFromEvent(attendee, event, result) {
+async function processContactFromEvent(attendee, event, result, attendeeTags = null) {
   const email = attendee.email.toLowerCase();
   const name = attendee.displayName || attendee.email.split('@')[0];
   const eventDate = new Date(event.start.dateTime || event.start.date);
@@ -1137,23 +1137,40 @@ async function processContactFromEvent(attendee, event, result) {
       [email]
     );
     
+    // Get tags for this attendee
+    let contactTags = [];
+    if (attendeeTags && attendeeTags[email]) {
+      contactTags = Array.isArray(attendeeTags[email]) ? attendeeTags[email] : [attendeeTags[email]];
+    } else if (!email.includes('@intothecom.com') && !email.includes('@intothecom')) {
+      // Default tag for external attendees
+      contactTags = ['New Lead'];
+    }
+    
     if (existingContact.rows.length > 0) {
       // Update existing contact
-      await pool.query(
-        'UPDATE contacts SET last_seen = $1, meeting_count = meeting_count + 1, name = COALESCE(NULLIF($2, \'\'), name) WHERE email = $3',
-        [eventDate.toISOString().split('T')[0], name, email]
-      );
+      if (contactTags.length > 0) {
+        await pool.query(
+          'UPDATE contacts SET last_seen = $1, meeting_count = meeting_count + 1, name = COALESCE(NULLIF($2, \'\'), name), tags = $4 WHERE email = $3',
+          [eventDate.toISOString().split('T')[0], name, email, contactTags]
+        );
+      } else {
+        await pool.query(
+          'UPDATE contacts SET last_seen = $1, meeting_count = meeting_count + 1, name = COALESCE(NULLIF($2, \'\'), name) WHERE email = $3',
+          [eventDate.toISOString().split('T')[0], name, email]
+        );
+      }
     } else {
       // Create new contact
       await pool.query(
-        'INSERT INTO contacts (email, name, first_seen, last_seen, meeting_count) VALUES ($1, $2, $3, $4, 1)',
-        [email, name, eventDate.toISOString().split('T')[0], eventDate.toISOString().split('T')[0]]
+        'INSERT INTO contacts (email, name, first_seen, last_seen, meeting_count, tags) VALUES ($1, $2, $3, $4, 1, $5)',
+        [email, name, eventDate.toISOString().split('T')[0], eventDate.toISOString().split('T')[0], contactTags]
       );
       
       result.newContacts.push({
         email: email,
         name: name,
-        first_seen: eventDate.toISOString().split('T')[0]
+        first_seen: eventDate.toISOString().split('T')[0],
+        tags: contactTags
       });
     }
   } catch (error) {
@@ -1514,7 +1531,7 @@ app.post('/api/events', async (req, res) => {
     });
   }
 
-  const { summary, description, start, end, attendees, notes } = req.body;
+  const { summary, description, start, end, attendees, notes, attendeeTags } = req.body;
   
   // Validate required fields
   if (!summary || !start || !end) {
@@ -1575,10 +1592,10 @@ app.post('/api/events', async (req, res) => {
       try {
         for (const attendee of createdEvent.attendees) {
           if (attendee.email) {
-            await processContactFromEvent(attendee, createdEvent, { rows: [] });
+            await processContactFromEvent(attendee, createdEvent, { newContacts: [] }, attendeeTags);
           }
         }
-        console.log('Attendees processed for contact sync');
+        console.log('Attendees processed for contact sync with tags:', attendeeTags);
       } catch (syncError) {
         console.error('Error processing attendees for contact sync:', syncError);
       }
@@ -7684,6 +7701,7 @@ app.get('/', (req, res) => {
           document.getElementById('createEventModal').style.display = 'none';
           document.getElementById('createEventForm').reset();
           eventAttendees = [];
+          attendeeTags = {}; // Limpiar etiquetas
           updateAttendeesList();
         }
         
@@ -7993,7 +8011,8 @@ app.get('/', (req, res) => {
             start: startDate.toISOString(),
             end: endDate.toISOString(),
             attendees: eventAttendees.map(email => email.trim()),
-            notes: formData.get('notes')
+            notes: formData.get('notes'),
+            attendeeTags: attendeeTags
           };
           
           try {
