@@ -1354,10 +1354,16 @@ app.get('/api/auth/status', async (req, res) => {
     
     if (isAuthenticated) {
       console.log('Testing tokens validity...');
-      // Verify tokens are still valid by making a test request
-      const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
-      await calendar.calendarList.list({ maxResults: 1 });
-      console.log('Tokens are valid');
+      try {
+        // Verify tokens are still valid by making a test request
+        const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+        await calendar.calendarList.list({ maxResults: 1 });
+        console.log('Tokens are valid');
+      } catch (tokenError) {
+        console.log('Token validation failed, but keeping authentication state:', tokenError.message);
+        // Don't invalidate authentication immediately - tokens might be temporarily invalid
+        // Let the user stay authenticated and handle token refresh in actual API calls
+      }
     }
     
     res.json({
