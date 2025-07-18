@@ -1761,6 +1761,7 @@ app.get('/api/financial-summary/:year/:month', async (req, res) => {
           totalCLP: projectsTotalCLP,
           payments: projectPayments
         },
+        currentUFValue: currentUFValue,
         year: parseInt(year),
         month: parseInt(month)
       }
@@ -10302,10 +10303,10 @@ app.get('/', (req, res) => {
                 if (client.base_monthly_price) {
                   if (client.base_currency === 'UF') {
                     basePriceInCLP = client.base_monthly_price * currentUFValue;
-                    basePriceDisplay = '$' + basePriceInCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 }) + ' (' + client.base_monthly_price + ' UF)';
+                    basePriceDisplay = formatCLP(basePriceInCLP) + ' (' + formatUF(client.base_monthly_price) + ')';
                   } else {
                     basePriceInCLP = client.base_monthly_price;
-                    basePriceDisplay = '$' + basePriceInCLP.toLocaleString('es-CL');
+                    basePriceDisplay = formatCLP(basePriceInCLP);
                   }
                 }
                 
@@ -10316,10 +10317,10 @@ app.get('/', (req, res) => {
                 if (client.final_price) {
                   if (client.final_currency === 'UF') {
                     finalPriceInCLP = client.final_price * currentUFValue;
-                    finalPriceDisplay = '$' + finalPriceInCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 }) + ' (' + client.final_price + ' UF)';
+                    finalPriceDisplay = formatCLP(finalPriceInCLP) + ' (' + formatUF(client.final_price) + ')';
                   } else {
                     finalPriceInCLP = client.final_price;
-                    finalPriceDisplay = '$' + finalPriceInCLP.toLocaleString('es-CL');
+                    finalPriceDisplay = formatCLP(finalPriceInCLP);
                   }
                 }
                 
@@ -10329,10 +10330,10 @@ app.get('/', (req, res) => {
                 let adjustmentClass = 'zero';
                 
                 if (adjustmentAmount > 0) {
-                  adjustmentDisplay = '+$' + adjustmentAmount.toLocaleString('es-CL');
+                  adjustmentDisplay = '+' + formatCLP(adjustmentAmount);
                   adjustmentClass = 'positive';
                 } else if (adjustmentAmount < 0) {
-                  adjustmentDisplay = '-$' + Math.abs(adjustmentAmount).toLocaleString('es-CL');
+                  adjustmentDisplay = '-' + formatCLP(Math.abs(adjustmentAmount));
                   adjustmentClass = 'negative';
                 }
                 
@@ -10404,8 +10405,8 @@ app.get('/', (req, res) => {
               // Total CLP includes both direct CLP and converted UF
               const grandTotalCLP = totalCLP + totalCLPFromUF;
               
-              document.getElementById('totalCLP').textContent = '$ ' + grandTotalCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 });
-              document.getElementById('totalUF').textContent = totalUF.toLocaleString('es-CL', { minimumFractionDigits: 2 }) + ' UF';
+              document.getElementById('totalCLP').textContent = formatCLP(grandTotalCLP);
+              document.getElementById('totalUF').textContent = formatUF(totalUF);
             }
           } catch (error) {
             console.error('Error calculating totals:', error);
@@ -10662,6 +10663,19 @@ app.get('/', (req, res) => {
           document.getElementById('currentMonthDisplayProyectos').textContent = monthDisplay;
         }
 
+        // Format Chilean money amounts
+        function formatCLP(amount) {
+          return '$' + Math.round(amount).toLocaleString('es-CL');
+        }
+        
+        function formatUF(amount) {
+          if (amount % 1 === 0) {
+            return 'UF' + Math.round(amount).toLocaleString('es-CL');
+          } else {
+            return 'UF' + amount.toLocaleString('es-CL', { maximumFractionDigits: 1 });
+          }
+        }
+
         async function loadResumenData() {
           try {
             updateMonthDisplayResumen();
@@ -10671,11 +10685,13 @@ app.get('/', (req, res) => {
             const data = await response.json();
             
             if (data.success) {
+              const backendUFValue = data.data.currentUFValue;
+              
               // Update summary cards
-              document.getElementById('totalCLPResumen').textContent = '$ ' + data.data.monthlyBilling.totalCLP.toLocaleString('es-CL');
-              document.getElementById('totalUFResumen').textContent = data.data.monthlyBilling.totalUF.toLocaleString('es-CL', { maximumFractionDigits: 2 }) + ' UF';
-              document.getElementById('totalProjectsCLP').textContent = '$ ' + data.data.projects.totalCLP.toLocaleString('es-CL');
-              document.getElementById('totalMonthlyIncome').textContent = '$ ' + (data.data.monthlyBilling.totalCLP + data.data.projects.totalCLP).toLocaleString('es-CL');
+              document.getElementById('totalCLPResumen').textContent = formatCLP(data.data.monthlyBilling.totalCLP);
+              document.getElementById('totalUFResumen').textContent = formatUF(data.data.monthlyBilling.totalUF);
+              document.getElementById('totalProjectsCLP').textContent = formatCLP(data.data.projects.totalCLP);
+              document.getElementById('totalMonthlyIncome').textContent = formatCLP(data.data.monthlyBilling.totalCLP + data.data.projects.totalCLP);
               
               // Load resumen table
               const tbody = document.getElementById('resumenTableBody');
@@ -10684,21 +10700,24 @@ app.get('/', (req, res) => {
               // Add monthly billing entries
               data.data.monthlyBilling.clients.forEach(client => {
                 const row = document.createElement('tr');
-                let finalPrice = 0;
+                let amountDisplay = 'Sin precio';
+                let currencyDisplay = 'CLP';
                 
                 if (client.final_price) {
                   if (client.final_currency === 'UF') {
-                    finalPrice = client.final_price * currentUFValue;
+                    amountDisplay = formatUF(client.final_price);
+                    currencyDisplay = 'UF';
                   } else {
-                    finalPrice = client.final_price;
+                    amountDisplay = formatCLP(client.final_price);
+                    currencyDisplay = 'CLP';
                   }
                 }
                 
                 row.innerHTML = 
                   '<td>Flujo Mensual</td>' +
                   '<td>' + (client.company || client.name || client.email) + '</td>' +
-                  '<td>$ ' + finalPrice.toLocaleString('es-CL') + '</td>' +
-                  '<td>' + (client.final_currency || 'CLP') + '</td>' +
+                  '<td>' + amountDisplay + '</td>' +
+                  '<td>' + currencyDisplay + '</td>' +
                   '<td>Activo</td>';
                 tbody.appendChild(row);
               });
@@ -10706,10 +10725,20 @@ app.get('/', (req, res) => {
               // Add project entries
               data.data.projects.payments.forEach(payment => {
                 const row = document.createElement('tr');
+                let amountDisplay = 'Sin monto';
+                
+                if (payment.amount) {
+                  if (payment.currency === 'UF') {
+                    amountDisplay = formatUF(payment.amount);
+                  } else {
+                    amountDisplay = formatCLP(payment.amount);
+                  }
+                }
+                
                 row.innerHTML = 
                   '<td>Proyecto</td>' +
                   '<td>' + payment.project_name + '</td>' +
-                  '<td>$ ' + payment.amount.toLocaleString('es-CL') + '</td>' +
+                  '<td>' + amountDisplay + '</td>' +
                   '<td>' + payment.currency + '</td>' +
                   '<td>' + (payment.payment_status === 'pending' ? 'Pendiente' : 'Pagado') + '</td>';
                 tbody.appendChild(row);
