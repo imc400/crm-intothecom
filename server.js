@@ -1251,10 +1251,28 @@ app.get('/api/auth/google/callback', async (req, res) => {
   const { code } = req.query;
   
   if (!code) {
-    return res.status(400).json({
-      success: false,
-      error: 'Authorization code missing'
-    });
+    return res.status(400).send(
+      '<html>' +
+        '<head><title>Authentication Error</title></head>' +
+        '<body>' +
+          '<h2>❌ Authentication Error</h2>' +
+          '<p>Authorization code missing. Please try again.</p>' +
+          '<script>' +
+            'console.log("Callback error page loaded");' +
+            'if (window.opener) {' +
+              'console.log("Found opener window, sending error message");' +
+              'window.opener.postMessage({type: "google-auth-error", error: "Authorization code missing"}, "*");' +
+              'console.log("Error message sent, closing window");' +
+              'setTimeout(function() {' +
+                'window.close();' +
+              '}, 3000);' +
+            '} else {' +
+              'console.log("No opener window found");' +
+            '}' +
+          '</script>' +
+        '</body>' +
+      '</html>'
+    );
   }
 
   try {
@@ -1301,10 +1319,28 @@ app.get('/api/auth/google/callback', async (req, res) => {
     );
   } catch (error) {
     console.error('Google auth error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Authentication failed'
-    });
+    res.status(500).send(
+      '<html>' +
+        '<head><title>Authentication Error</title></head>' +
+        '<body>' +
+          '<h2>❌ Authentication Error</h2>' +
+          '<p>Authentication failed. Please try again.</p>' +
+          '<script>' +
+            'console.log("Callback error page loaded");' +
+            'if (window.opener) {' +
+              'console.log("Found opener window, sending error message");' +
+              'window.opener.postMessage({type: "google-auth-error", error: "Authentication failed"}, "*");' +
+              'console.log("Error message sent, closing window");' +
+              'setTimeout(function() {' +
+                'window.close();' +
+              '}, 3000);' +
+            '} else {' +
+              'console.log("No opener window found");' +
+            '}' +
+          '</script>' +
+        '</body>' +
+      '</html>'
+    );
   }
 });
 
@@ -4910,6 +4946,10 @@ app.get('/', (req, res) => {
             setTimeout(function() {
               window.location.reload();
             }, 2000);
+          } else if (event.data && event.data.type === 'google-auth-error') {
+            console.log('Auth error received:', event.data.error);
+            // Show error message to user
+            alert('Error de autenticación: ' + event.data.error);
           }
         });
 
