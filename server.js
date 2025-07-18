@@ -1584,6 +1584,9 @@ app.post('/api/events', async (req, res) => {
       }
     }
 
+    // Debug: Log basic info
+    console.log('Sending to client - Event ID:', createdEvent.id);
+    
     res.json({
       success: true,
       data: createdEvent,
@@ -8017,23 +8020,48 @@ app.get('/', (req, res) => {
               // Recargar eventos del calendario
               loadEventsWithCurrentView();
               
+              // Debug: Log the result structure
+              console.log('Event creation result:', result);
+              console.log('Event data:', result.data);
+              console.log('Event ID:', result.data ? result.data.id : 'NO ID');
+              
               // Etiquetar automáticamente correos externos (en background)
-              if (eventAttendees.length > 0) {
-                const externalAttendees = eventAttendees.filter(email => 
-                  !email.includes('@intothecom.com') && !email.includes('@intothecom')
-                );
-                
-                if (externalAttendees.length > 0) {
-                  // Usar etiquetas asignadas individualmente para cada asistente
-                  for (const email of externalAttendees) {
-                    const tag = attendeeTags[email] || (availableTags.length > 0 ? availableTags[0].tag : 'New Lead');
-                    syncAttendeeTags(result.data.id, [email], [tag]).catch(error => {
-                      console.error('Error syncing attendee tags for', email, ':', error);
-                      // No mostrar error al usuario, es proceso en background
-                    });
+              // Usar setTimeout para hacer esto completamente asíncrono y evitar errores
+              setTimeout(() => {
+                try {
+                  if (eventAttendees && eventAttendees.length > 0) {
+                    const externalAttendees = eventAttendees.filter(email => 
+                      !email.includes('@intothecom.com') && !email.includes('@intothecom')
+                    );
+                    
+                    if (externalAttendees.length > 0 && result.data && result.data.id) {
+                      // Usar etiquetas asignadas individualmente para cada asistente
+                      for (const email of externalAttendees) {
+                        // Validar que las variables existen
+                        if (typeof attendeeTags === 'undefined') {
+                          console.warn('attendeeTags is undefined, skipping tag sync');
+                          continue;
+                        }
+                        if (typeof availableTags === 'undefined') {
+                          console.warn('availableTags is undefined, using default tag');
+                          availableTags = [{ tag: 'New Lead', count: 0 }];
+                        }
+                        
+                        const tag = attendeeTags[email] || (availableTags.length > 0 ? availableTags[0].tag : 'New Lead');
+                        syncAttendeeTags(result.data.id, [email], [tag]).catch(error => {
+                          console.error('Error syncing attendee tags for', email, ':', error);
+                          // No mostrar error al usuario, es proceso en background
+                        });
+                      }
+                    } else if (externalAttendees.length > 0) {
+                      console.warn('Cannot sync attendee tags: Event ID not available or no external attendees');
+                    }
                   }
+                } catch (syncError) {
+                  console.error('Error in background attendee tag sync:', syncError);
+                  // No mostrar error al usuario, es proceso en background
                 }
-              }
+              }, 100);
               
               // Mostrar notificación de éxito (opcional)
               console.log('Reunión creada exitosamente');
