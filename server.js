@@ -921,6 +921,16 @@ app.delete('/api/events/:eventId', async (req, res) => {
         error: 'Google Calendar client not configured'
       });
     }
+    
+    if (!storedTokens) {
+      return res.status(401).json({
+        success: false,
+        error: 'Google Calendar not authenticated'
+      });
+    }
+    
+    // Set credentials to ensure they're current
+    oAuth2Client.setCredentials(storedTokens);
 
     const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
     
@@ -931,7 +941,7 @@ app.delete('/api/events/:eventId', async (req, res) => {
     });
     
     // Delete from local database
-    await db.query('DELETE FROM events WHERE google_event_id = $1', [eventId]);
+    await pool.query('DELETE FROM events WHERE google_event_id = $1', [eventId]);
     
     res.json({
       success: true,
@@ -940,10 +950,23 @@ app.delete('/api/events/:eventId', async (req, res) => {
     
   } catch (error) {
     console.error('Error deleting event:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Error al eliminar la reunión'
-    });
+    
+    if (error.code === 401 || error.code === 403) {
+      // Clear expired tokens
+      storedTokens = null;
+      if (oAuth2Client) {
+        oAuth2Client.setCredentials({});
+      }
+      res.status(401).json({
+        success: false,
+        error: 'Google Calendar authentication expired'
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Error al eliminar la reunión'
+      });
+    }
   }
 });
 
@@ -1426,12 +1449,31 @@ app.get('/api/calendar/events', async (req, res) => {
     });
   }
 
+  if (!storedTokens) {
+    return res.status(401).json({
+      success: false,
+      error: 'Google Calendar not authenticated'
+    });
+  }
+
   try {
+    // Set credentials to ensure they're current
+    oAuth2Client.setCredentials(storedTokens);
+    
     const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
     const view = req.query.view || 'week';
     const dateParam = req.query.date;
     
     const now = dateParam ? new Date(dateParam) : new Date();
+    
+    // Validate date parameter
+    if (dateParam && isNaN(now.getTime())) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid date parameter provided'
+      });
+    }
+    
     let timeMin, timeMax;
     
     switch (view) {
@@ -1508,7 +1550,12 @@ app.get('/api/calendar/events', async (req, res) => {
   } catch (error) {
     console.error('Calendar events error:', error);
     
-    if (error.code === 401) {
+    if (error.code === 401 || error.code === 403) {
+      // Clear expired tokens
+      storedTokens = null;
+      if (oAuth2Client) {
+        oAuth2Client.setCredentials({});
+      }
       res.status(401).json({
         success: false,
         error: 'Authentication required. Please connect to Google Calendar first.'
