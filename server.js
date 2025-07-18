@@ -7054,7 +7054,7 @@ app.get('/', (req, res) => {
           formData.append('displayName', nameInput.value.trim());
           
           try {
-            const response = await fetch(`/api/contacts/${currentContactData.id}/attachments`, {
+            const response = await fetch('/api/contacts/' + currentContactData.id + '/attachments', {
               method: 'POST',
               body: formData
             });
