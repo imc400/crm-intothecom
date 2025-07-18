@@ -349,6 +349,29 @@ async function initDatabase() {
     `);
     console.log('project_payments table created successfully');
     
+    // Create UF values table
+    console.log('Creating uf_values table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS uf_values (
+        id SERIAL PRIMARY KEY,
+        date DATE NOT NULL,
+        value DECIMAL(10,2) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('uf_values table created successfully');
+    
+    // Check if we have UF values, if not insert current one
+    const ufCheck = await pool.query('SELECT COUNT(*) FROM uf_values');
+    if (parseInt(ufCheck.rows[0].count) === 0) {
+      console.log('Inserting initial UF value...');
+      await pool.query(`
+        INSERT INTO uf_values (date, value) 
+        VALUES (CURRENT_DATE, 37837.50)
+      `);
+      console.log('Initial UF value inserted successfully');
+    }
+    
     // Migrate existing financial data to new structure
     console.log('Migrating existing financial data...');
     await migrateFinancialData();
@@ -10251,8 +10274,8 @@ app.get('/', (req, res) => {
             // Load monthly billing data
             await loadMonthlyBillingData();
             
-            // Calculate totals
-            calculateMonthlyTotals();
+            // Calculate totals using backend data instead of frontend calculation
+            await calculateMonthlyTotalsFromBackend();
             
           } catch (error) {
             console.error('Error loading finance data:', error);
