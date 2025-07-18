@@ -638,7 +638,7 @@ app.get('/api/uf-value', async (req, res) => {
     res.json({
       success: false,
       error: 'Failed to fetch UF value',
-      fallback: 37000 // Fallback value in case of API failure
+      fallback: 37000
     });
   }
 });
@@ -1707,15 +1707,35 @@ app.get('/api/financial-summary/:year/:month', async (req, res) => {
   const { year, month } = req.params;
   
   try {
-    // Get current UF value first
+    // Get current UF value from external API
     let currentUFValue = 37000; // Default fallback
     try {
-      const ufResponse = await pool.query('SELECT value FROM uf_values ORDER BY date DESC LIMIT 1');
-      if (ufResponse.rows.length > 0) {
-        currentUFValue = parseFloat(ufResponse.rows[0].value);
+      // Try to get UF value from Chilean API (CMF)
+      const ufApiResponse = await fetch('https://api.cmfchile.cl/api-sbifv3/recursos_api/uf/2025?apikey=caa54e3e35a3b1e0e9ddc7a4b1b53b11f8ab8a4e&formato=json');
+      const ufData = await ufApiResponse.json();
+      
+      if (ufData && ufData.UFs && ufData.UFs.length > 0) {
+        const latestUF = ufData.UFs[ufData.UFs.length - 1];
+        currentUFValue = parseFloat(latestUF.Valor.replace(',', '.'));
+        console.log('UF value from API:', currentUFValue);
+        
+        // Update database with latest value
+        await pool.query('INSERT INTO uf_values (date, value) VALUES (CURRENT_DATE, $1) ON CONFLICT DO NOTHING', [currentUFValue]);
+      } else {
+        throw new Error('No UF data from API');
       }
-    } catch (ufError) {
-      console.log('UF value not found in database, using fallback:', currentUFValue);
+    } catch (apiError) {
+      console.log('Could not get UF from API, trying database...');
+      // Fallback to database
+      try {
+        const ufResponse = await pool.query('SELECT value FROM uf_values ORDER BY date DESC LIMIT 1');
+        if (ufResponse.rows.length > 0) {
+          currentUFValue = parseFloat(ufResponse.rows[0].value);
+          console.log('UF value from database:', currentUFValue);
+        }
+      } catch (ufError) {
+        console.log('UF value not found in database, using fallback:', currentUFValue);
+      }
     }
     
     // Get monthly billing data directly from database
@@ -1745,18 +1765,33 @@ app.get('/api/financial-summary/:year/:month', async (req, res) => {
     
     let monthlyTotalCLP = 0;
     let monthlyTotalUF = 0;
+    let monthlyDirectCLP = 0;
     const monthlyClients = monthlyBillingResult.rows;
     
+    console.log('Processing clients for financial summary:');
+    console.log('UF Value being used:', currentUFValue);
+    
     monthlyClients.forEach(client => {
-      if (client.final_price) {
+      if (client.final_price && parseFloat(client.final_price) > 0) {
+        const price = parseFloat(client.final_price);
+        console.log(`Client: ${client.company || client.name}, Price: ${price}, Currency: ${client.final_currency}`);
+        
         if (client.final_currency === 'UF') {
-          monthlyTotalUF += parseFloat(client.final_price);
-          monthlyTotalCLP += parseFloat(client.final_price) * currentUFValue;
+          monthlyTotalUF += price;
         } else {
-          monthlyTotalCLP += parseFloat(client.final_price);
+          monthlyDirectCLP += price;
         }
       }
     });
+    
+    // Calculate total CLP: (Total UF × UF Value) + Direct CLP
+    monthlyTotalCLP = (monthlyTotalUF * currentUFValue) + monthlyDirectCLP;
+    
+    console.log(`Summary calculations:`);
+    console.log(`- Total UF: ${monthlyTotalUF}`);
+    console.log(`- Direct CLP: ${monthlyDirectCLP}`);
+    console.log(`- UF converted to CLP: ${monthlyTotalUF * currentUFValue}`);
+    console.log(`- Final Total CLP: ${monthlyTotalCLP}`);
     
     // Get project payments for the month
     const projectPaymentsResult = await pool.query(`
