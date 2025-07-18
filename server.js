@@ -236,6 +236,19 @@ async function initDatabase() {
     `);
     console.log('contact_attachments table created successfully');
     
+    // Create contact_tag_history table for tracking when tags are assigned
+    console.log('Creating contact_tag_history table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS contact_tag_history (
+        id SERIAL PRIMARY KEY,
+        contact_id INTEGER REFERENCES contacts(id) ON DELETE CASCADE,
+        tag_name VARCHAR(255) NOT NULL,
+        assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(contact_id, tag_name)
+      )
+    `);
+    console.log('contact_tag_history table created successfully');
+    
     console.log('Database initialized successfully');
     
     // Force check contact_attachments table
@@ -419,8 +432,22 @@ app.get('/health', (req, res) => {
 // Get all contacts
 app.get('/api/contacts', async (req, res) => {
   try {
-    // First check if contacts table exists
-    const result = await pool.query('SELECT * FROM contacts ORDER BY created_at DESC');
+    // Get contacts with days since 'propuesta enviada' tag was assigned
+    const result = await pool.query(`
+      SELECT 
+        c.*,
+        CASE 
+          WHEN c.tags @> ARRAY['propuesta enviada']::text[] THEN 
+            EXTRACT(days FROM NOW() - COALESCE(th.assigned_at, c.updated_at))::integer
+          ELSE NULL 
+        END as days_since_proposal
+      FROM contacts c
+      LEFT JOIN contact_tag_history th ON c.id = th.contact_id AND th.tag_name = 'propuesta enviada'
+      ORDER BY 
+        CASE WHEN c.tags @> ARRAY['propuesta enviada']::text[] THEN days_since_proposal END DESC NULLS LAST,
+        c.created_at DESC
+    `);
+    
     res.json({
       success: true,
       data: result.rows || [],
@@ -428,12 +455,22 @@ app.get('/api/contacts', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching contacts:', error);
-    // Return empty array instead of error to prevent frontend issues
-    res.json({
-      success: true,
-      data: [],
-      count: 0
-    });
+    // Fallback to simple query if the complex one fails
+    try {
+      const fallbackResult = await pool.query('SELECT * FROM contacts ORDER BY created_at DESC');
+      res.json({
+        success: true,
+        data: fallbackResult.rows || [],
+        count: fallbackResult.rows ? fallbackResult.rows.length : 0
+      });
+    } catch (fallbackError) {
+      console.error('Fallback query also failed:', fallbackError);
+      res.json({
+        success: true,
+        data: [],
+        count: 0
+      });
+    }
   }
 });
 
@@ -561,10 +598,29 @@ app.post('/api/contacts/:contactId/tags', async (req, res) => {
       });
     }
     
+    // Get current tags to compare
+    const currentContact = await pool.query('SELECT tags FROM contacts WHERE id = $1', [contactId]);
+    const currentTags = currentContact.rows[0]?.tags || [];
+    
+    // Update contact tags
     const result = await pool.query(
       'UPDATE contacts SET tags = $1, notes = $2 WHERE id = $3 RETURNING *',
       [tags, notes || '', contactId]
     );
+    
+    // Track new tag assignments
+    const newTags = tags.filter(tag => !currentTags.includes(tag));
+    for (const tag of newTags) {
+      try {
+        await pool.query(
+          'INSERT INTO contact_tag_history (contact_id, tag_name) VALUES ($1, $2) ON CONFLICT (contact_id, tag_name) DO NOTHING',
+          [contactId, tag]
+        );
+      } catch (tagError) {
+        console.error('Error recording tag history:', tagError);
+        // Don't fail the whole operation if tag history fails
+      }
+    }
     
     res.json({
       success: true,
@@ -4322,6 +4378,28 @@ app.get('/', (req, res) => {
           color: var(--text-secondary);
         }
         
+        .kanban-card-proposal-days {
+          font-size: 12px;
+          color: #e53e3e;
+          background: rgba(229, 62, 62, 0.1);
+          padding: 4px 8px;
+          border-radius: 6px;
+          margin-top: 8px;
+          font-weight: 500;
+          text-align: center;
+        }
+        
+        .contact-proposal-days {
+          font-size: 12px;
+          color: #e53e3e;
+          background: rgba(229, 62, 62, 0.1);
+          padding: 3px 6px;
+          border-radius: 4px;
+          margin-top: 4px;
+          font-weight: 500;
+          display: inline-block;
+        }
+        
         .kanban-card-meetings {
           font-size: 12px;
           color: #FF6B00;
@@ -5224,7 +5302,6 @@ app.get('/', (req, res) => {
                   <select id="contactSortFilter" class="filter-select" onchange="filterContacts()">
                     <option value="recent">Más recientes</option>
                     <option value="name">Por nombre</option>
-                    <option value="meetings">Por reuniones</option>
                   </select>
                 </div>
                 
@@ -7920,9 +7997,14 @@ app.get('/', (req, res) => {
                     
                     html += contacts.map(contact => {
                       const borderColor = tag === 'Untagged' ? '#e2e8f0' : color;
+                      const proposalDays = contact.tags && contact.tags.includes('propuesta enviada') && contact.days_since_proposal 
+                        ? '<div class="contact-proposal-days">' + contact.days_since_proposal + ' días desde propuesta</div>' 
+                        : '';
+                      
                       return '<div class="event-item contact-item" style="border-left: 4px solid ' + borderColor + '; cursor: pointer;" ' + safeOnclick('showContactDetails', contact.email) + '>' +
                         '<div class="event-title">' + contact.email + '</div>' +
-                        '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + (contact.meeting_count || 0) + ' reuniones</div>' +
+                        '<div class="event-attendees">' + (contact.name || 'Sin nombre') + '</div>' +
+                        proposalDays +
                         (contact.tags && contact.tags.length > 0 ? 
                           '<div class="contact-tags" style="margin-top: 8px;">' + 
                             contact.tags.map(t => '<span class="tag-badge ' + t.toLowerCase().replace(/\s+/g, '-') + '">' + t + '</span>').join('') +
@@ -8054,8 +8136,6 @@ app.get('/', (req, res) => {
                 const nameA = (a.name || a.email).toLowerCase();
                 const nameB = (b.name || b.email).toLowerCase();
                 return nameA.localeCompare(nameB);
-              case 'meetings':
-                return (b.meeting_count || 0) - (a.meeting_count || 0);
               case 'recent':
               default:
                 return new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at);
@@ -8091,7 +8171,6 @@ app.get('/', (req, res) => {
         function getSortLabel(sortFilter) {
           switch (sortFilter) {
             case 'name': return 'Por nombre';
-            case 'meetings': return 'Por reuniones';
             case 'recent': return 'Más recientes';
             default: return sortFilter;
           }
@@ -8192,9 +8271,14 @@ app.get('/', (req, res) => {
               
               html += tagContacts.map(contact => {
                 const borderColor = tag === 'Untagged' ? '#e2e8f0' : color;
+                const proposalDays = contact.tags && contact.tags.includes('propuesta enviada') && contact.days_since_proposal 
+                  ? '<div class="contact-proposal-days">' + contact.days_since_proposal + ' días desde propuesta</div>' 
+                  : '';
+                
                 return '<div class="event-item contact-item" style="border-left: 4px solid ' + borderColor + '; cursor: pointer;" ' + safeOnclick('showContactDetails', contact.email) + '>' +
                   '<div class="event-title">' + contact.email + '</div>' +
-                  '<div class="event-attendees">' + (contact.name || 'Sin nombre') + ' • ' + (contact.meeting_count || 0) + ' reuniones</div>' +
+                  '<div class="event-attendees">' + (contact.name || 'Sin nombre') + '</div>' +
+                  proposalDays +
                   (contact.tags && contact.tags.length > 0 ? 
                     '<div class="contact-tags" style="margin-top: 8px;">' + 
                       contact.tags.map(t => {
@@ -8327,8 +8411,13 @@ app.get('/', (req, res) => {
         }
 
         function renderKanbanCard(contact) {
-          const meetingCount = contact.meeting_count || 0;
           const notes = contact.notes ? contact.notes.substring(0, 80) + '...' : '';
+          const daysSinceProposal = contact.days_since_proposal;
+          
+          // Show days counter for 'propuesta enviada' contacts
+          const proposalInfo = contact.tags && contact.tags.includes('propuesta enviada') && daysSinceProposal 
+            ? '<div class="kanban-card-proposal-days">' + daysSinceProposal + ' días desde propuesta</div>' 
+            : '';
           
           return '<div class="kanban-card" ' +
                    'draggable="true" ' +
@@ -8339,8 +8428,8 @@ app.get('/', (req, res) => {
                      '<div class="kanban-card-name">' + (contact.name || 'Sin nombre') + '</div>' +
                      '<div class="kanban-card-email">' + contact.email + '</div>' +
                    '</div>' +
-                   '<div class="kanban-card-meetings">' + meetingCount + ' reuniones</div>' +
                  '</div>' +
+                 proposalInfo +
                  (notes ? '<div class="kanban-card-notes">' + notes + '</div>' : '') +
                '</div>';
         }
