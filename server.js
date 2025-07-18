@@ -10978,7 +10978,6 @@ app.get('/', (req, res) => {
                     '<td>' + pendingFormatted + '</td>' +
                     '<td>' + (project.project_status === 'active' ? 'Activo' : 'Completado') + '</td>' +
                     '<td>' +
-                      '<button class="btn btn-sm btn-secondary" onclick="viewProjectDetails(' + project.id + ')">Ver</button>' +
                       '<button class="btn btn-sm btn-primary" onclick="addProjectPayment(' + project.id + ')">Pago</button>' +
                       '<button class="btn btn-sm btn-danger" onclick="deleteProject(' + project.id + ', \'' + project.project_name + '\')">Eliminar</button>' +
                     '</td>';
@@ -11223,10 +11222,6 @@ app.get('/', (req, res) => {
           return response.json();
         }
 
-        function viewProjectDetails(projectId) {
-          // TODO: Implement project details view
-          alert('Ver detalles del proyecto: ' + projectId);
-        }
 
         async function addProjectPayment(projectId) {
           try {
@@ -11275,16 +11270,14 @@ app.get('/', (req, res) => {
             
             const currentDate = new Date();
             const paymentData = {
-              project_id: parseInt(formData.get('projectId')),
-              amount: parseFloat(project.total_amount), // Use project's total amount
+              amount: parseFloat(project.total_amount),
+              currency: project.currency,
+              payment_date: currentDate.toISOString().split('T')[0],
               payment_status: formData.get('paymentStatus'),
-              payment_date: currentDate.toISOString().split('T')[0], // Today's date
-              payment_year: currentDate.getFullYear(),
-              payment_month: currentDate.getMonth() + 1,
-              description: 'Pago de proyecto - ' + project.project_name
+              notes: 'Pago de proyecto - ' + project.project_name
             };
             
-            const response = await fetch('/api/project-payments', {
+            const response = await fetch('/api/projects/' + formData.get('projectId') + '/payments', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(paymentData)
