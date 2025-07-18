@@ -2700,6 +2700,8 @@ app.get('/', (req, res) => {
         
         :root {
           --primary-orange: #FF6B00;
+          --primary-color: #FF6B00;
+          --primary-hover: #FF8533;
           --primary-gradient: linear-gradient(135deg, #FF6B00 0%, #FF8533 100%);
           --secondary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           --dark-gradient: linear-gradient(135deg, #0c0c0c 0%, #1a1a1a 100%);
@@ -2716,10 +2718,20 @@ app.get('/', (req, res) => {
           --surface-elevated: #edf2f7;
           --border-light: #e2e8f0;
           --border-medium: #cbd5e0;
+          --border-color: #e2e8f0;
+          --card-bg: rgba(255, 255, 255, 0.8);
+          --header-bg: rgba(255, 255, 255, 0.9);
           --success: #48bb78;
+          --success-light: rgba(72, 187, 120, 0.1);
+          --success-dark: #2f855a;
           --warning: #ed8936;
+          --warning-light: rgba(237, 137, 54, 0.1);
+          --warning-dark: #c05621;
           --error: #f56565;
+          --error-dark: #c53030;
           --info: #4299e1;
+          --info-light: rgba(66, 153, 225, 0.1);
+          --info-dark: #2b6cb0;
         }
         
         * {
@@ -5665,32 +5677,37 @@ app.get('/', (req, res) => {
         }
         
         .summary-card {
-          background: var(--card-bg);
-          border: 1px solid var(--border-color);
-          border-radius: 12px;
-          padding: 20px;
+          background: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.8) 100%);
+          border: 1px solid rgba(255, 107, 0, 0.2);
+          border-radius: 16px;
+          padding: 24px;
           text-align: center;
-          backdrop-filter: blur(10px);
+          backdrop-filter: blur(15px);
           transition: all 0.3s ease;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
         }
         
         .summary-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+          transform: translateY(-4px);
+          box-shadow: 0 12px 40px rgba(255, 107, 0, 0.15);
+          border-color: rgba(255, 107, 0, 0.4);
         }
         
         .summary-title {
           color: var(--text-secondary);
-          font-size: 0.9rem;
-          margin-bottom: 8px;
-          font-weight: 500;
+          font-size: 0.85rem;
+          margin-bottom: 12px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
         }
         
         .summary-amount {
-          color: var(--text-primary);
-          font-size: 1.8rem;
-          font-weight: 700;
+          color: var(--primary-color);
+          font-size: 2rem;
+          font-weight: 800;
           margin-bottom: 0;
+          text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
         }
         
         .finance-table-container {
@@ -5705,26 +5722,43 @@ app.get('/', (req, res) => {
           width: 100%;
           border-collapse: collapse;
           background: transparent;
+          border-radius: 12px;
+          overflow: hidden;
         }
         
         .finance-table th {
-          background: var(--header-bg);
-          color: var(--text-primary);
+          background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-hover) 100%);
+          color: white;
           font-weight: 600;
-          padding: 15px 12px;
+          padding: 18px 15px;
           text-align: left;
-          border-bottom: 2px solid var(--border-color);
+          border: none;
           font-size: 0.9rem;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
         
         .finance-table td {
-          padding: 12px;
+          padding: 16px 15px;
           border-bottom: 1px solid var(--border-color);
           color: var(--text-primary);
+          font-size: 0.9rem;
+          vertical-align: middle;
         }
         
         .finance-table tr:hover {
-          background: rgba(255, 255, 255, 0.05);
+          background: rgba(255, 107, 0, 0.05);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(255, 107, 0, 0.1);
+        }
+        
+        .finance-table tbody tr {
+          transition: all 0.3s ease;
+        }
+        
+        .finance-table tbody tr:last-child td {
+          border-bottom: none;
         }
         
         .finance-table .no-data {
@@ -5747,20 +5781,33 @@ app.get('/', (req, res) => {
         
         .currency-badge {
           display: inline-block;
-          padding: 2px 6px;
-          border-radius: 4px;
-          font-size: 0.8rem;
-          font-weight: 500;
+          padding: 6px 12px;
+          border-radius: 20px;
+          font-size: 0.75rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
         
         .currency-badge.clp {
-          background: var(--success-light);
-          color: var(--success-dark);
+          background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+          color: white;
         }
         
         .currency-badge.uf {
-          background: var(--warning-light);
-          color: var(--warning-dark);
+          background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+          color: white;
+        }
+        
+        .currency-badge.usd {
+          background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+          color: white;
+        }
+        
+        .currency-badge.eur {
+          background: linear-gradient(135deg, #805ad5 0%, #6b46c1 100%);
+          color: white;
         }
         
         .months-active {
@@ -5770,42 +5817,50 @@ app.get('/', (req, res) => {
         
         .billing-status {
           display: inline-block;
-          padding: 4px 8px;
-          border-radius: 4px;
-          font-size: 0.8rem;
-          font-weight: 500;
+          padding: 6px 12px;
+          border-radius: 20px;
+          font-size: 0.75rem;
+          font-weight: 600;
           text-transform: uppercase;
+          letter-spacing: 0.5px;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
         
         .billing-status.pending {
-          background: var(--warning-light);
-          color: var(--warning-dark);
+          background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+          color: white;
         }
         
         .billing-status.billed {
-          background: var(--info-light);
-          color: var(--info-dark);
+          background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+          color: white;
         }
         
         .billing-status.paid {
-          background: var(--success-light);
-          color: var(--success-dark);
+          background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+          color: white;
         }
         
         .adjustment-amount {
           font-weight: 600;
+          padding: 4px 8px;
+          border-radius: 6px;
+          font-size: 0.85rem;
         }
         
         .adjustment-amount.positive {
           color: var(--success-dark);
+          background: var(--success-light);
         }
         
         .adjustment-amount.negative {
           color: var(--error-dark);
+          background: rgba(245, 101, 101, 0.1);
         }
         
         .adjustment-amount.zero {
           color: var(--text-secondary);
+          background: rgba(113, 128, 150, 0.1);
         }
         
         /* Monthly Billing Modal Styles */
