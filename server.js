@@ -1397,6 +1397,33 @@ app.get('/api/auth/debug', (req, res) => {
   });
 });
 
+// Disconnect Google Calendar authentication
+app.post('/api/auth/disconnect', async (req, res) => {
+  try {
+    // Clear stored tokens
+    storedTokens = null;
+    
+    // Clear tokens from database
+    await pool.query('DELETE FROM google_tokens');
+    
+    // Reset OAuth2 client
+    if (oAuth2Client) {
+      oAuth2Client.setCredentials({});
+    }
+    
+    res.json({
+      success: true,
+      message: 'Google Calendar disconnected successfully'
+    });
+  } catch (error) {
+    console.error('Error disconnecting Google Calendar:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error disconnecting Google Calendar'
+    });
+  }
+});
+
 // Check authentication status
 app.get('/api/auth/status', async (req, res) => {
   try {
@@ -1739,6 +1766,38 @@ app.get('/', (req, res) => {
         };
         
         window.authenticateGoogle = window.startGoogleAuth;
+        
+        // Disconnect Google Calendar function
+        window.disconnectGoogle = function() {
+          if (confirm('¿Estás seguro que quieres desconectar Google Calendar?')) {
+            fetch('/api/auth/disconnect', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            })
+            .then(response => response.json())
+            .then(result => {
+              if (result.success) {
+                alert('Google Calendar desconectado exitosamente');
+                // Update UI to show disconnected state
+                updateAuthButton(false);
+                // Clear calendar grid
+                const calendarGrid = document.querySelector('.calendar-grid');
+                if (calendarGrid) {
+                  calendarGrid.innerHTML = '<div class="auth-prompt"><h3>Conecta tu Google Calendar</h3><p>Para ver tus eventos, necesitas conectar tu cuenta de Google Calendar.</p><button class="btn btn-primary" onclick="authenticateGoogle()">Conectar Google Calendar</button></div>';
+                }
+              } else {
+                alert('Error al desconectar: ' + result.error);
+              }
+            })
+            .catch(error => {
+              console.error('Error disconnecting:', error);
+              alert('Error de conexión al desconectar');
+            });
+          }
+        };
+        
         console.log('=== AUTH FUNCTIONS DEFINED ===');
       </script>
       <style>
@@ -5139,7 +5198,7 @@ app.get('/', (req, res) => {
           
           if (isAuthenticated) {
             console.log('Setting auth button to authenticated state');
-            authButton.innerHTML = '<div class="connection-status connected">&#x2713; Conectado</div>';
+            authButton.innerHTML = '<div class="connection-status connected">&#x2713; Conectado <button class="btn btn-small btn-danger" onclick="disconnectGoogle()" style="margin-left: 10px;">Desconectar</button></div>';
             startAutoSync();
           } else {
             console.log('Setting auth button to unauthenticated state');
