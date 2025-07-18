@@ -4925,7 +4925,7 @@ app.get('/', (req, res) => {
             }
             return String(arg);
           });
-          return 'onclick="' + funcName + '(' + escapedArgs.join(', ') + ')"';
+          return 'onclick="event.stopPropagation(); ' + funcName + '(' + escapedArgs.join(', ') + ')"';
         }
         
         // Tab switching
@@ -5148,6 +5148,9 @@ app.get('/', (req, res) => {
         let currentDate = new Date();
         let currentView = 'week';
         
+        // Prevent concurrent calendar renders
+        let isRenderingCalendar = false;
+        
         // Check auth status on page load
         document.addEventListener('DOMContentLoaded', () => {
           console.log('DOMContentLoaded event fired');
@@ -5364,6 +5367,12 @@ app.get('/', (req, res) => {
 
         async function showEventDetails(eventId) {
           try {
+            // Prevent multiple calls to the same event
+            if (currentEventId === eventId) {
+              console.log('Modal already open for this event:', eventId);
+              return;
+            }
+            
             currentEventId = eventId;
             
             // Show loading state
@@ -6635,68 +6644,83 @@ app.get('/', (req, res) => {
         }
 
         function renderCalendarView(events, view) {
-          const calendarGrid = document.querySelector('.calendar-grid');
-          
-          console.log('Rendering ' + view + ' view with ' + events.length + ' events:', events.map(e => ({
-            summary: e.summary,
-            start: e.start?.dateTime || e.start?.date,
-            date: new Date(e.start?.dateTime || e.start?.date).toDateString()
-          })));
-          
-          if (events.length === 0) {
-            calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No se encontraron eventos en tu calendario</p></div>';
+          // Prevent concurrent renders
+          if (isRenderingCalendar) {
+            console.log('Render already in progress, skipping...');
             return;
           }
           
-          if (view === 'week') {
-            calendarGrid.innerHTML = renderWeekView(events);
-          } else if (view === 'month') {
-            calendarGrid.innerHTML = renderMonthView(events);
-          } else {
-            // Day view - filter events for selected date only
-            const selectedDateStr = currentDate.toDateString();
+          isRenderingCalendar = true;
+          
+          try {
+            const calendarGrid = document.querySelector('.calendar-grid');
             
-            console.log('Day view filtering:', {
-              selectedDate: selectedDateStr,
-              selectedDay: currentDate.getDate(),
-              totalEvents: events.length,
-              eventsData: events.map(e => ({
-                summary: e.summary,
-                start: e.start?.dateTime || e.start?.date,
-                eventDateStr: new Date(e.start?.dateTime || e.start?.date).toDateString()
-              }))
-            });
+            console.log('Rendering ' + view + ' view with ' + events.length + ' events:', events.map(e => ({
+              summary: e.summary,
+              start: e.start?.dateTime || e.start?.date,
+              date: new Date(e.start?.dateTime || e.start?.date).toDateString()
+            })));
             
-            const dayEvents = events.filter(event => {
-              const eventDate = new Date(event.start.dateTime || event.start.date);
-              const matches = eventDate.toDateString() === selectedDateStr;
-              if (matches) {
-                console.log('Event matches selected day:', {
-                  eventSummary: event.summary,
-                  eventDate: eventDate.toDateString(),
-                  selectedDate: selectedDateStr
-                });
-              }
-              return matches;
-            });
-            
-            console.log('Filtered day events:', dayEvents.length);
-            
-            if (dayEvents.length === 0) {
-              calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No tienes eventos programados para este día (' + selectedDateStr + ')</p></div>';
+            if (events.length === 0) {
+              calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No se encontraron eventos en tu calendario</p></div>';
               return;
             }
             
-            calendarGrid.innerHTML = dayEvents.map(event => 
-              '<div class="event-item event-clickable" ' + safeOnclick('showEventDetails', event.id) + '>' +
-                '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
-                '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
-                '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
-                '<div class="event-actions">' +
-                  (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn" onclick="event.stopPropagation();">Unirse</a>' : '') +
-                '</div>' +
-              '</div>'
-            ).join('');
+            if (view === 'week') {
+              calendarGrid.innerHTML = renderWeekView(events);
+            } else if (view === 'month') {
+              calendarGrid.innerHTML = renderMonthView(events);
+            } else {
+              // Day view - filter events for selected date only
+              const selectedDateStr = currentDate.toDateString();
+              
+              console.log('Day view filtering:', {
+                selectedDate: selectedDateStr,
+                selectedDay: currentDate.getDate(),
+                totalEvents: events.length,
+                eventsData: events.map(e => ({
+                  summary: e.summary,
+                  start: e.start?.dateTime || e.start?.date,
+                  eventDateStr: new Date(e.start?.dateTime || e.start?.date).toDateString()
+                }))
+              });
+              
+              const dayEvents = events.filter(event => {
+                const eventDate = new Date(event.start.dateTime || event.start.date);
+                const matches = eventDate.toDateString() === selectedDateStr;
+                if (matches) {
+                  console.log('Event matches selected day:', {
+                    eventSummary: event.summary,
+                    eventDate: eventDate.toDateString(),
+                    selectedDate: selectedDateStr
+                  });
+                }
+                return matches;
+              });
+              
+              console.log('Filtered day events:', dayEvents.length);
+              
+              if (dayEvents.length === 0) {
+                calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No tienes eventos programados para este día (' + selectedDateStr + ')</p></div>';
+                return;
+              }
+              
+              calendarGrid.innerHTML = dayEvents.map(event => 
+                '<div class="event-item event-clickable" ' + safeOnclick('showEventDetails', event.id) + '>' +
+                  '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
+                  '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
+                  '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
+                  '<div class="event-actions">' +
+                    (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn" onclick="event.stopPropagation();">Unirse</a>' : '') +
+                  '</div>' +
+                '</div>'
+              ).join('');
+            }
+          } finally {
+            // Always reset the flag, even if an error occurs
+            setTimeout(() => {
+              isRenderingCalendar = false;
+            }, 100);
           }
         }
 
