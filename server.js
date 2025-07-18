@@ -1280,6 +1280,14 @@ app.get('/api/monthly-billing/:year/:month', async (req, res) => {
       ORDER BY COALESCE(c.company, c.name)
     `, [year, month]);
     
+    console.log('Monthly Billing Debug:');
+    console.log('- Clients count:', contractsResult.rows.length);
+    
+    // Debug individual clients
+    contractsResult.rows.forEach(client => {
+      console.log(`Client: ${client.company || client.name}, Final Price: ${client.final_price}, Currency: ${client.final_currency}`);
+    });
+
     res.json({
       success: true,
       data: contractsResult.rows,
@@ -1753,6 +1761,17 @@ app.get('/api/financial-summary/:year/:month', async (req, res) => {
       }
     });
     
+    console.log('Financial Summary Debug:');
+    console.log('- UF Value:', currentUFValue);
+    console.log('- Monthly Total CLP:', monthlyTotalCLP);
+    console.log('- Monthly Total UF:', monthlyTotalUF);
+    console.log('- Clients count:', monthlyClients.length);
+    
+    // Debug individual clients
+    monthlyClients.forEach(client => {
+      console.log(`Client: ${client.company || client.name}, Final Price: ${client.final_price}, Currency: ${client.final_currency}`);
+    });
+
     res.json({
       success: true,
       data: {
@@ -10690,6 +10709,9 @@ app.get('/', (req, res) => {
             
             if (data.success) {
               const backendUFValue = data.data.currentUFValue;
+              
+              // Update the global UF value to match backend
+              currentUFValue = backendUFValue;
               
               // Update summary cards
               document.getElementById('totalCLPResumen').textContent = formatCLP(data.data.monthlyBilling.totalCLP);
