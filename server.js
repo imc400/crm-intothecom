@@ -401,6 +401,11 @@ app.get('/debug/attachments/:contactId', async (req, res) => {
   }
 });
 
+// Simple test endpoint
+app.get('/test', (req, res) => {
+  res.json({ message: 'Server is working', timestamp: new Date().toISOString() });
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
