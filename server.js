@@ -1690,22 +1690,26 @@ app.get('/api/financial-summary/:year/:month', async (req, res) => {
     // Get monthly billing data directly from database
     const monthlyBillingResult = await pool.query(`
       SELECT 
-        c.id,
+        c.id as contact_id,
         c.name,
         c.email,
         c.company,
-        c.phone,
-        c.industry,
-        c.is_active_client,
-        COALESCE(mb.adjusted_price, cc.base_monthly_price) as final_price,
-        COALESCE(mb.currency, cc.base_currency, 'CLP') as final_currency,
         cc.base_monthly_price,
-        cc.base_currency
+        cc.base_currency,
+        cc.contract_start_date,
+        mb.adjusted_price,
+        mb.currency,
+        mb.adjustment_reason,
+        mb.adjustment_type,
+        mb.adjustment_amount,
+        mb.billing_status,
+        COALESCE(mb.adjusted_price, cc.base_monthly_price) as final_price,
+        COALESCE(mb.currency, cc.base_currency) as final_currency
       FROM contacts c
-      LEFT JOIN client_contracts cc ON c.id = cc.contact_id AND cc.is_active = true
+      INNER JOIN client_contracts cc ON c.id = cc.contact_id
       LEFT JOIN monthly_billing mb ON c.id = mb.contact_id AND mb.year = $1 AND mb.month = $2
-      WHERE c.is_active_client = true OR cc.id IS NOT NULL
-      ORDER BY c.company, c.name
+      WHERE cc.is_active = true
+      ORDER BY COALESCE(c.company, c.name)
     `, [year, month]);
     
     let monthlyTotalCLP = 0;
