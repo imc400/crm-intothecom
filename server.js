@@ -8005,13 +8005,14 @@ app.get('/', (req, res) => {
               body: JSON.stringify(eventData)
             });
             
+            // Leer la respuesta una sola vez
+            const result = await response.json();
+            
             // Verificar si la respuesta HTTP es exitosa
             if (!response.ok) {
-              const errorData = await response.json().catch(() => ({}));
-              throw new Error('HTTP ' + response.status + ': ' + (errorData.error || 'Error del servidor'));
+              const errorMessage = result.error || 'Error del servidor';
+              throw new Error('HTTP ' + response.status + ': ' + errorMessage);
             }
-            
-            const result = await response.json();
             
             if (result.success) {
               // Cerrar modal inmediatamente para mejor UX
