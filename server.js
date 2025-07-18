@@ -10309,7 +10309,7 @@ app.get('/', (req, res) => {
             // Load monthly billing data
             await loadMonthlyBillingData();
             
-            // Calculate totals using backend data instead of frontend calculation
+            // Calculate totals using same backend calculation as resumen
             await calculateMonthlyTotalsFromBackend();
             
           } catch (error) {
@@ -10341,7 +10341,7 @@ app.get('/', (req, res) => {
           
           updateMonthDisplay();
           loadMonthlyBillingData();
-          calculateMonthlyTotals();
+          calculateMonthlyTotalsFromBackend();
         }
 
         async function loadCurrentUFValue() {
@@ -10460,6 +10460,25 @@ app.get('/', (req, res) => {
           if (!dateString) return '';
           const date = new Date(dateString);
           return date.toLocaleDateString('es-CL');
+        }
+
+        async function calculateMonthlyTotalsFromBackend() {
+          try {
+            const response = await fetch('/api/financial-summary/' + currentFinanceYear + '/' + currentFinanceMonth);
+            const data = await response.json();
+            
+            if (data.success) {
+              // Use the same backend-calculated totals as Resumen General
+              document.getElementById('totalCLP').textContent = formatCLP(data.data.monthlyBilling.totalCLP);
+              document.getElementById('totalUF').textContent = formatUF(data.data.monthlyBilling.totalUF);
+              
+              // Sync UF value and display it
+              currentUFValue = data.data.currentUFValue;
+              document.getElementById('currentUF').textContent = formatCLP(currentUFValue);
+            }
+          } catch (error) {
+            console.error('Error calculating totals from backend:', error);
+          }
         }
 
         async function calculateMonthlyTotals() {
@@ -10636,7 +10655,7 @@ app.get('/', (req, res) => {
             if (result.success) {
               showStatus('Facturación mensual actualizada exitosamente', 'success');
               loadMonthlyBillingData();
-              calculateMonthlyTotals();
+              calculateMonthlyTotalsFromBackend();
             } else {
               showStatus('Error actualizando facturación: ' + result.error, 'error');
             }
