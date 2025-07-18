@@ -10905,9 +10905,233 @@ app.get('/', (req, res) => {
           }
         }
 
-        function showCreateProjectModal() {
-          // TODO: Implement create project modal
-          alert('Funcionalidad de crear proyecto próximamente');
+        async function showCreateProjectModal() {
+          // Load clients for dropdown
+          await loadClientsForProject();
+          
+          // Load project name suggestions
+          await loadProjectNameSuggestions();
+          
+          // Load intelligent suggestions
+          await loadIntelligentSuggestions();
+          
+          // Set default date to today
+          const today = new Date().toISOString().split('T')[0];
+          document.getElementById('singlePaymentDate').value = today;
+          
+          document.getElementById('createProjectModal').style.display = 'block';
+        }
+
+        function closeCreateProjectModal() {
+          document.getElementById('createProjectModal').style.display = 'none';
+          document.getElementById('createProjectForm').reset();
+          document.getElementById('smartSuggestions').style.display = 'none';
+          togglePaymentOptions(); // Reset to single payment
+        }
+
+        async function loadClientsForProject() {
+          try {
+            const response = await fetch('/api/contacts');
+            const data = await response.json();
+            
+            const select = document.getElementById('projectClient');
+            select.innerHTML = '<option value="">Selecciona un cliente...</option>';
+            
+            if (data.success) {
+              data.data.forEach(client => {
+                if (client.company || client.name) {
+                  const option = document.createElement('option');
+                  option.value = client.id;
+                  option.textContent = client.company || client.name || client.email;
+                  select.appendChild(option);
+                }
+              });
+            }
+          } catch (error) {
+            console.error('Error loading clients:', error);
+          }
+        }
+
+        async function loadProjectNameSuggestions() {
+          try {
+            const response = await fetch('/api/projects');
+            const data = await response.json();
+            
+            const datalist = document.getElementById('projectNameSuggestions');
+            datalist.innerHTML = '';
+            
+            if (data.success) {
+              const projectNames = [...new Set(data.data.map(p => p.project_name))];
+              projectNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                datalist.appendChild(option);
+              });
+            }
+          } catch (error) {
+            console.error('Error loading project name suggestions:', error);
+          }
+        }
+
+        async function loadIntelligentSuggestions() {
+          try {
+            // Get projects with pending payments
+            const response = await fetch('/api/projects');
+            const data = await response.json();
+            
+            if (data.success) {
+              const pendingProjects = data.data.filter(project => 
+                project.project_status === 'active' && 
+                parseFloat(project.pending_amount || 0) > 0
+              );
+              
+              if (pendingProjects.length > 0) {
+                const suggestionsDiv = document.getElementById('pendingPaymentsSuggestions');
+                suggestionsDiv.innerHTML = '';
+                
+                pendingProjects.forEach(project => {
+                  const suggestion = document.createElement('div');
+                  suggestion.className = 'suggestion-item';
+                  suggestion.style.cssText = 'padding: 10px; margin: 5px 0; background: white; border-radius: 6px; cursor: pointer; border: 1px solid #ddd;';
+                  
+                  suggestion.innerHTML = 
+                    '<strong>' + project.project_name + '</strong> - ' + 
+                    (project.client_name || project.client_email) + 
+                    '<br><small>Pendiente: ' + formatCLP(project.pending_amount) + '</small>';
+                  
+                  suggestion.onclick = function() {
+                    fillSuggestion(project);
+                  };
+                  
+                  suggestionsDiv.appendChild(suggestion);
+                });
+                
+                document.getElementById('smartSuggestions').style.display = 'block';
+              }
+            }
+          } catch (error) {
+            console.error('Error loading intelligent suggestions:', error);
+          }
+        }
+
+        function fillSuggestion(project) {
+          document.getElementById('projectClient').value = project.contact_id;
+          document.getElementById('projectName').value = 'Cuota Pendiente - ' + project.project_name;
+          document.getElementById('projectAmount').value = project.pending_amount;
+          document.getElementById('projectCurrency').value = project.currency;
+          document.getElementById('smartSuggestions').style.display = 'none';
+        }
+
+        function togglePaymentOptions() {
+          const paymentType = document.getElementById('projectPaymentType').value;
+          const singleOption = document.getElementById('singlePaymentOption');
+          const installmentsOption = document.getElementById('installmentsOption');
+          
+          if (paymentType === 'single') {
+            singleOption.style.display = 'block';
+            installmentsOption.style.display = 'none';
+          } else {
+            singleOption.style.display = 'none';
+            installmentsOption.style.display = 'block';
+            generateInstallmentFields();
+          }
+        }
+
+        function generateInstallmentFields() {
+          const count = parseInt(document.getElementById('installmentCount').value);
+          const container = document.getElementById('installmentFields');
+          container.innerHTML = '';
+          
+          for (let i = 1; i <= count; i++) {
+            const field = document.createElement('div');
+            field.className = 'form-row';
+            field.style.marginBottom = '10px';
+            
+            field.innerHTML = 
+              '<div class="form-group" style="flex: 1;">' +
+                '<label>Cuota ' + i + '</label>' +
+                '<input type="number" name="installment_' + i + '_amount" class="form-control" placeholder="Monto cuota ' + i + '" required>' +
+              '</div>' +
+              '<div class="form-group" style="width: 200px;">' +
+                '<label>Fecha</label>' +
+                '<input type="date" name="installment_' + i + '_date" class="form-control" required>' +
+              '</div>';
+            
+            container.appendChild(field);
+          }
+        }
+
+        async function createNewProject() {
+          const form = document.getElementById('createProjectForm');
+          const formData = new FormData(form);
+          
+          try {
+            // Create project first
+            const projectData = {
+              contact_id: formData.get('client'),
+              project_name: formData.get('projectName'),
+              description: formData.get('description'),
+              total_amount: parseFloat(formData.get('amount')),
+              currency: formData.get('currency'),
+              project_status: 'active'
+            };
+            
+            const projectResponse = await fetch('/api/projects', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(projectData)
+            });
+            
+            const projectResult = await projectResponse.json();
+            
+            if (projectResult.success) {
+              const projectId = projectResult.data.id;
+              
+              // Create payments based on type
+              const paymentType = formData.get('paymentType');
+              
+              if (paymentType === 'single') {
+                await createProjectPayment(projectId, {
+                  amount: parseFloat(formData.get('amount')),
+                  currency: formData.get('currency'),
+                  payment_date: formData.get('paymentDate'),
+                  payment_status: 'pending'
+                });
+              } else {
+                const count = parseInt(document.getElementById('installmentCount').value);
+                for (let i = 1; i <= count; i++) {
+                  const amount = parseFloat(formData.get('installment_' + i + '_amount'));
+                  const date = formData.get('installment_' + i + '_date');
+                  
+                  await createProjectPayment(projectId, {
+                    amount: amount,
+                    currency: formData.get('currency'),
+                    payment_date: date,
+                    payment_status: 'pending'
+                  });
+                }
+              }
+              
+              showStatus('Proyecto creado exitosamente', 'success');
+              closeCreateProjectModal();
+              loadProyectosData(); // Refresh projects view
+            } else {
+              showStatus('Error creando proyecto: ' + projectResult.error, 'error');
+            }
+          } catch (error) {
+            console.error('Error creating project:', error);
+            showStatus('Error creando proyecto', 'error');
+          }
+        }
+
+        async function createProjectPayment(projectId, paymentData) {
+          const response = await fetch('/api/projects/' + projectId + '/payments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(paymentData)
+          });
+          
+          return response.json();
         }
 
         function viewProjectDetails(projectId) {
@@ -11489,6 +11713,102 @@ app.get('/', (req, res) => {
           <div class="modal-footer">
             <button type="button" class="btn btn-outline" onclick="closeCreateEventModal()">Cancelar</button>
             <button type="button" class="btn btn-primary" onclick="createNewEvent()">Crear Reunión</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Create Project Modal -->
+      <div id="createProjectModal" class="modal" style="display: none;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h3>Nuevo Proyecto</h3>
+            <button class="close-btn" onclick="closeCreateProjectModal()">&times;</button>
+          </div>
+          <div class="modal-body">
+            <form id="createProjectForm">
+              <!-- Sugerencias inteligentes -->
+              <div id="smartSuggestions" style="display: none; margin-bottom: 20px; padding: 15px; background: var(--card-bg); border-radius: 8px; border-left: 4px solid var(--primary-color);">
+                <h4 style="margin: 0 0 10px 0; color: var(--primary-color);">💡 Sugerencias Inteligentes</h4>
+                <div id="pendingPaymentsSuggestions"></div>
+              </div>
+
+              <div class="form-group">
+                <label for="projectClient">Cliente/Empresa *</label>
+                <select id="projectClient" name="client" required class="form-control">
+                  <option value="">Selecciona un cliente...</option>
+                  <!-- Options populated by JavaScript -->
+                </select>
+              </div>
+              
+              <div class="form-group">
+                <label for="projectName">Nombre del Proyecto *</label>
+                <input type="text" id="projectName" name="projectName" required class="form-control" 
+                       placeholder="Ej: Página Web, E-commerce, Landing Page" 
+                       list="projectNameSuggestions">
+                <datalist id="projectNameSuggestions">
+                  <!-- Populated by JavaScript -->
+                </datalist>
+                <small class="form-help">Se guardará para futuros proyectos similares</small>
+              </div>
+              
+              <div class="form-row">
+                <div class="form-group" style="flex: 1;">
+                  <label for="projectAmount">Monto Total *</label>
+                  <input type="number" id="projectAmount" name="amount" required class="form-control" 
+                         placeholder="1000000" step="1000">
+                </div>
+                <div class="form-group" style="width: 120px;">
+                  <label for="projectCurrency">Moneda</label>
+                  <select id="projectCurrency" name="currency" class="form-control">
+                    <option value="CLP">CLP</option>
+                    <option value="UF">UF</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="projectPaymentType">Tipo de Pago</label>
+                <select id="projectPaymentType" name="paymentType" class="form-control" onchange="togglePaymentOptions()">
+                  <option value="single">Pago único</option>
+                  <option value="installments">En cuotas</option>
+                </select>
+              </div>
+
+              <!-- Single Payment Option -->
+              <div id="singlePaymentOption">
+                <div class="form-group">
+                  <label for="singlePaymentDate">Fecha de Pago *</label>
+                  <input type="date" id="singlePaymentDate" name="paymentDate" class="form-control">
+                </div>
+              </div>
+
+              <!-- Installments Option -->
+              <div id="installmentsOption" style="display: none;">
+                <div class="form-group">
+                  <label for="installmentCount">Número de Cuotas</label>
+                  <select id="installmentCount" class="form-control" onchange="generateInstallmentFields()">
+                    <option value="2">2 cuotas</option>
+                    <option value="3">3 cuotas</option>
+                    <option value="4">4 cuotas</option>
+                    <option value="5">5 cuotas</option>
+                    <option value="6">6 cuotas</option>
+                  </select>
+                </div>
+                <div id="installmentFields">
+                  <!-- Generated by JavaScript -->
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="projectDescription">Descripción (Opcional)</label>
+                <textarea id="projectDescription" name="description" class="form-control" rows="2" 
+                          placeholder="Detalles adicionales del proyecto..."></textarea>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline" onclick="closeCreateProjectModal()">Cancelar</button>
+            <button type="button" class="btn btn-primary" onclick="createNewProject()">Crear Proyecto</button>
           </div>
         </div>
       </div>
