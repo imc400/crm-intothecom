@@ -806,10 +806,18 @@ app.get('/api/contacts/:contactId/attachments/:attachmentId/download', async (re
     }
     
     const attachment = result.rows[0];
-    const filePath = path.join(__dirname, 'uploads', 'contacts', attachment.filename);
+    const filePath = attachment.file_path;
+    
+    console.log('=== DOWNLOAD ATTACHMENT ===');
+    console.log('Attachment ID:', attachmentId);
+    console.log('Contact ID:', contactId);
+    console.log('Attachment data:', attachment);
+    console.log('Expected file path:', filePath);
+    console.log('File exists:', fs.existsSync(filePath));
     
     // Check if file exists
     if (!fs.existsSync(filePath)) {
+      console.error('File not found at path:', filePath);
       return res.status(404).json({
         success: false,
         error: 'File not found on server'
@@ -2170,6 +2178,7 @@ app.get('/', (req, res) => {
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         
         :root {
+          --primary-orange: #FF6B00;
           --primary-gradient: linear-gradient(135deg, #FF6B00 0%, #FF8533 100%);
           --secondary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           --dark-gradient: linear-gradient(135deg, #0c0c0c 0%, #1a1a1a 100%);
