@@ -220,6 +220,7 @@ async function initDatabase() {
     }
     
     // Create contact_attachments table if it doesn't exist
+    console.log('Creating contact_attachments table...');
     await pool.query(`
       CREATE TABLE IF NOT EXISTS contact_attachments (
         id SERIAL PRIMARY KEY,
@@ -233,6 +234,7 @@ async function initDatabase() {
         uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    console.log('contact_attachments table created successfully');
     
     console.log('Database initialized successfully');
     
@@ -253,6 +255,14 @@ async function initDatabase() {
         ORDER BY ordinal_position
       `);
       console.log('Current events table schema:', eventsSchemaResult.rows);
+      
+      const attachmentsSchemaResult = await pool.query(`
+        SELECT column_name, data_type 
+        FROM information_schema.columns 
+        WHERE table_name = 'contact_attachments'
+        ORDER BY ordinal_position
+      `);
+      console.log('Current contact_attachments table schema:', attachmentsSchemaResult.rows);
     } catch (schemaError) {
       console.error('Error checking table schemas:', schemaError);
     }
@@ -666,6 +676,11 @@ app.get('/api/contacts/:contactId/attachments', async (req, res) => {
 
 // Upload attachment for a contact
 app.post('/api/contacts/:contactId/attachments', upload.single('file'), async (req, res) => {
+  console.log('=== ATTACHMENT UPLOAD ENDPOINT CALLED ===');
+  console.log('ContactId:', req.params.contactId);
+  console.log('Body:', req.body);
+  console.log('File:', req.file ? 'File uploaded' : 'No file');
+  
   const { contactId } = req.params;
   const { displayName } = req.body;
   
