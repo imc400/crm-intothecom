@@ -1639,6 +1639,27 @@ app.put('/api/projects/:id', async (req, res) => {
   }
 });
 
+// Delete all payments for a project (without deleting the project)
+app.delete('/api/projects/:id/payments', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const result = await pool.query('DELETE FROM project_payments WHERE project_id = $1', [id]);
+    
+    res.json({
+      success: true,
+      message: 'Project payments deleted successfully',
+      deletedCount: result.rowCount
+    });
+  } catch (error) {
+    console.error('Error deleting project payments:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete project payments'
+    });
+  }
+});
+
 // Delete project
 app.delete('/api/projects/:id', async (req, res) => {
   const { id } = req.params;
@@ -1730,37 +1751,6 @@ app.post('/api/projects/:id/payments', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to add project payment'
-    });
-  }
-});
-
-// Delete project
-app.delete('/api/projects/:id', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    // First, delete all project payments
-    await pool.query('DELETE FROM project_payments WHERE project_id = $1', [id]);
-    
-    // Then delete the project
-    const result = await pool.query('DELETE FROM projects WHERE id = $1 RETURNING *', [id]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Project not found'
-      });
-    }
-    
-    res.json({
-      success: true,
-      message: 'Project deleted successfully'
-    });
-  } catch (error) {
-    console.error('Error deleting project:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to delete project'
     });
   }
 });
@@ -11258,10 +11248,21 @@ app.get('/', (req, res) => {
           const formData = new FormData(form);
           
           try {
-            // Get project information again to use its total_amount
+            const projectId = formData.get('projectId');
+            
+            // First, delete any existing payments for this project
+            const deleteResponse = await fetch('/api/projects/' + projectId + '/payments', {
+              method: 'DELETE'
+            });
+            
+            if (!deleteResponse.ok) {
+              console.log('No existing payments to delete or delete failed');
+            }
+            
+            // Get project information to use its total_amount
             const projectResponse = await fetch('/api/projects');
             const projectData = await projectResponse.json();
-            const project = projectData.data.find(p => p.id === parseInt(formData.get('projectId')));
+            const project = projectData.data.find(p => p.id === parseInt(projectId));
             
             if (!project) {
               alert('Error: No se encontró el proyecto');
@@ -11277,7 +11278,7 @@ app.get('/', (req, res) => {
               notes: 'Pago de proyecto - ' + project.project_name
             };
             
-            const response = await fetch('/api/projects/' + formData.get('projectId') + '/payments', {
+            const response = await fetch('/api/projects/' + projectId + '/payments', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(paymentData)
