@@ -11228,9 +11228,29 @@ app.get('/', (req, res) => {
           alert('Ver detalles del proyecto: ' + projectId);
         }
 
-        function addProjectPayment(projectId) {
-          document.getElementById('paymentProjectId').value = projectId;
-          document.getElementById('paymentModal').style.display = 'block';
+        async function addProjectPayment(projectId) {
+          try {
+            // Get project information to pre-fill the modal
+            const response = await fetch('/api/projects');
+            const data = await response.json();
+            
+            if (data.success) {
+              const project = data.data.find(p => p.id === projectId);
+              if (project) {
+                document.getElementById('paymentProjectId').value = projectId;
+                document.getElementById('paymentProjectName').textContent = project.project_name;
+                document.getElementById('paymentClientName').textContent = project.company || project.contact_name || project.contact_email;
+                document.getElementById('paymentAmount').textContent = project.currency === 'UF' 
+                  ? (project.total_amount % 1 === 0 ? 'UF' + Math.round(project.total_amount).toLocaleString('es-CL') : 'UF' + project.total_amount.toLocaleString('es-CL', { maximumFractionDigits: 1 }))
+                  : '$' + Math.round(project.total_amount).toLocaleString('es-CL');
+                
+                document.getElementById('paymentModal').style.display = 'block';
+              }
+            }
+          } catch (error) {
+            console.error('Error loading project info:', error);
+            alert('Error al cargar información del proyecto');
+          }
         }
 
         function closePaymentModal() {
@@ -11243,18 +11263,26 @@ app.get('/', (req, res) => {
           const formData = new FormData(form);
           
           try {
+            // Get project information again to use its total_amount
+            const projectResponse = await fetch('/api/projects');
+            const projectData = await projectResponse.json();
+            const project = projectData.data.find(p => p.id === parseInt(formData.get('projectId')));
+            
+            if (!project) {
+              alert('Error: No se encontró el proyecto');
+              return;
+            }
+            
+            const currentDate = new Date();
             const paymentData = {
               project_id: parseInt(formData.get('projectId')),
-              amount: parseFloat(formData.get('amount')),
+              amount: parseFloat(project.total_amount), // Use project's total amount
               payment_status: formData.get('paymentStatus'),
-              payment_date: formData.get('paymentDate'),
-              description: formData.get('description') || ''
+              payment_date: currentDate.toISOString().split('T')[0], // Today's date
+              payment_year: currentDate.getFullYear(),
+              payment_month: currentDate.getMonth() + 1,
+              description: 'Pago de proyecto - ' + project.project_name
             };
-            
-            // Set payment year and month based on payment date
-            const paymentDate = new Date(paymentData.payment_date);
-            paymentData.payment_year = paymentDate.getFullYear();
-            paymentData.payment_month = paymentDate.getMonth() + 1;
             
             const response = await fetch('/api/project-payments', {
               method: 'POST',
@@ -11265,15 +11293,15 @@ app.get('/', (req, res) => {
             const result = await response.json();
             
             if (result.success) {
-              alert('Pago agregado exitosamente');
+              alert('Estado de pago actualizado exitosamente');
               closePaymentModal();
               loadProyectosData(); // Refresh the projects table
             } else {
-              alert('Error al agregar el pago: ' + result.error);
+              alert('Error al actualizar el estado del pago: ' + result.error);
             }
           } catch (error) {
-            console.error('Error adding payment:', error);
-            alert('Error al agregar el pago');
+            console.error('Error updating payment status:', error);
+            alert('Error al actualizar el estado del pago');
           }
         }
 
@@ -11973,43 +12001,34 @@ app.get('/', (req, res) => {
       <div id="paymentModal" class="modal" style="display: none;">
         <div class="modal-content">
           <div class="modal-header">
-            <h2>Gestión de Pago de Proyecto</h2>
+            <h2>Estado de Pago</h2>
             <span class="close-btn" onclick="closePaymentModal()">&times;</span>
           </div>
           <div class="modal-body">
             <form id="paymentForm">
               <input type="hidden" id="paymentProjectId" name="projectId">
               
-              <div class="form-group">
-                <label for="paymentAmount">Monto del Pago</label>
-                <input type="number" id="paymentAmount" name="amount" step="0.01" required class="form-control" 
-                       placeholder="Ej: 15 (para UF) o 500000 (para CLP)">
+              <!-- Project Information Display -->
+              <div style="background: var(--card-bg); padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <h4 style="margin: 0 0 10px 0; color: var(--primary-color);">Información del Proyecto</h4>
+                <p style="margin: 5px 0;"><strong>Proyecto:</strong> <span id="paymentProjectName"></span></p>
+                <p style="margin: 5px 0;"><strong>Cliente:</strong> <span id="paymentClientName"></span></p>
+                <p style="margin: 5px 0;"><strong>Monto:</strong> <span id="paymentAmount"></span></p>
               </div>
 
               <div class="form-group">
                 <label for="paymentStatus">Estado del Pago</label>
                 <select id="paymentStatus" name="paymentStatus" required class="form-control">
                   <option value="">Selecciona un estado...</option>
-                  <option value="pending">Pendiente</option>
+                  <option value="pending">Pendiente de Pago</option>
                   <option value="received">Pagado</option>
                 </select>
-              </div>
-
-              <div class="form-group">
-                <label for="paymentDate">Fecha del Pago</label>
-                <input type="date" id="paymentDate" name="paymentDate" required class="form-control">
-              </div>
-
-              <div class="form-group">
-                <label for="paymentDescription">Descripción (Opcional)</label>
-                <textarea id="paymentDescription" name="description" class="form-control" rows="2" 
-                          placeholder="Detalles del pago..."></textarea>
               </div>
             </form>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-outline" onclick="closePaymentModal()">Cancelar</button>
-            <button type="button" class="btn btn-primary" onclick="submitPayment()">Agregar Pago</button>
+            <button type="button" class="btn btn-primary" onclick="submitPayment()">Actualizar Estado</button>
           </div>
         </div>
       </div>
