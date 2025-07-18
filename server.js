@@ -239,6 +239,7 @@ async function initDatabase() {
     console.log('Database initialized successfully');
     
     // Log current table schemas for debugging
+    console.log('Starting schema logging...');
     try {
       const contactsSchemaResult = await pool.query(`
         SELECT column_name, data_type 
@@ -7172,20 +7173,36 @@ app.get('/', (req, res) => {
         
         // Download attachment
         async function downloadAttachment(attachmentId) {
-          if (!currentContactData) return;
+          console.log('=== DOWNLOAD ATTACHMENT CALLED ===');
+          console.log('Attachment ID:', attachmentId);
+          console.log('Current contact:', currentContactData);
+          
+          if (!currentContactData) {
+            console.error('No current contact data');
+            return;
+          }
           
           try {
             const downloadUrl = '/api/contacts/' + currentContactData.id + '/attachments/' + attachmentId + '/download';
-            // Create a temporary link and click it to trigger download
-            const link = document.createElement('a');
-            link.href = downloadUrl;
-            link.download = '';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+            console.log('Download URL:', downloadUrl);
+            
+            // Try fetch first to check if endpoint works
+            const response = await fetch(downloadUrl);
+            console.log('Download response status:', response.status);
+            
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error('Download failed:', errorText);
+              alert('Error al descargar archivo: ' + response.status);
+              return;
+            }
+            
+            // If fetch works, use window.open for download
+            window.open(downloadUrl, '_blank');
+            
           } catch (error) {
             console.error('Error downloading attachment:', error);
-            alert('Error al descargar archivo');
+            alert('Error al descargar archivo: ' + error.message);
           }
         }
         
