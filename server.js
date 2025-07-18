@@ -9062,9 +9062,11 @@ app.get('/', (req, res) => {
         }
 
         // Finance Tab Functions
+        let currentUFValue = 37000; // Default fallback value
+        
         async function loadFinanceData() {
           try {
-            // Load current UF value
+            // Load current UF value first
             await loadCurrentUFValue();
             
             // Load active clients data
@@ -9086,12 +9088,15 @@ app.get('/', (req, res) => {
             
             const currentUFElement = document.getElementById('currentUF');
             if (data.success) {
-              currentUFElement.textContent = '$ ' + data.data.value.toLocaleString('es-CL');
+              currentUFValue = data.data.value;
+              currentUFElement.textContent = '$ ' + currentUFValue.toLocaleString('es-CL');
             } else {
-              currentUFElement.textContent = '$ ' + data.fallback.toLocaleString('es-CL');
+              currentUFValue = data.fallback;
+              currentUFElement.textContent = '$ ' + currentUFValue.toLocaleString('es-CL');
             }
           } catch (error) {
             console.error('Error loading UF value:', error);
+            currentUFValue = 37000; // Fallback value
             document.getElementById('currentUF').textContent = 'Error';
           }
         }
@@ -9112,10 +9117,24 @@ app.get('/', (req, res) => {
                 // Calculate months active
                 const monthsActive = calculateMonthsActive(contact.contract_start_date);
                 
+                // Calculate price in CLP
+                let priceInCLP = 0;
+                let priceDisplay = 'Sin precio';
+                
+                if (contact.monthly_price) {
+                  if (contact.currency === 'UF') {
+                    priceInCLP = contact.monthly_price * currentUFValue;
+                    priceDisplay = '$' + priceInCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 }) + ' (' + contact.monthly_price + ' UF)';
+                  } else {
+                    priceInCLP = contact.monthly_price;
+                    priceDisplay = '$' + priceInCLP.toLocaleString('es-CL');
+                  }
+                }
+                
                 row.innerHTML = 
                   '<td>' + (contact.name || 'Sin nombre') + '</td>' +
                   '<td>' + contact.email + '</td>' +
-                  '<td>' + (contact.monthly_price ? '$' + contact.monthly_price.toLocaleString('es-CL') : 'Sin precio') + '</td>' +
+                  '<td>' + priceDisplay + '</td>' +
                   '<td>' +
                     '<span class="currency-badge ' + (contact.currency ? contact.currency.toLowerCase() : 'clp') + '">' + (contact.currency || 'CLP') + '</span>' +
                   '</td>' +
@@ -9164,18 +9183,23 @@ app.get('/', (req, res) => {
             if (data.success) {
               let totalCLP = 0;
               let totalUF = 0;
+              let totalCLPFromUF = 0;
               
               data.contacts.forEach(contact => {
                 if (contact.monthly_price) {
                   if (contact.currency === 'UF') {
                     totalUF += parseFloat(contact.monthly_price);
+                    totalCLPFromUF += parseFloat(contact.monthly_price) * currentUFValue;
                   } else {
                     totalCLP += parseFloat(contact.monthly_price);
                   }
                 }
               });
               
-              document.getElementById('totalCLP').textContent = '$ ' + totalCLP.toLocaleString('es-CL');
+              // Total CLP includes both direct CLP and converted UF
+              const grandTotalCLP = totalCLP + totalCLPFromUF;
+              
+              document.getElementById('totalCLP').textContent = '$ ' + grandTotalCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 });
               document.getElementById('totalUF').textContent = totalUF.toLocaleString('es-CL', { minimumFractionDigits: 2 }) + ' UF';
             }
           } catch (error) {
