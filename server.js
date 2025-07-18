@@ -265,6 +265,12 @@ async function initDatabase() {
 // Initialize database on startup
 initDatabase();
 
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, 'uploads', 'contacts');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -297,6 +303,18 @@ const upload = multer({
       cb(new Error('Tipo de archivo no permitido'));
     }
   }
+});
+
+// Error handling middleware for multer
+app.use((error, req, res, next) => {
+  if (error) {
+    console.error('Multer error:', error);
+    return res.status(400).json({
+      success: false,
+      error: 'File upload error: ' + error.message
+    });
+  }
+  next();
 });
 
 // Health check endpoint
@@ -2033,12 +2051,6 @@ app.post('/api/events', async (req, res) => {
     }
   }
 });
-
-// Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, 'uploads', 'contacts');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
 
 // Serve static files
 app.use(express.static('public'));
