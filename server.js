@@ -730,6 +730,115 @@ app.put('/api/contacts/:email/tags', async (req, res) => {
 
 // CONTACT ATTACHMENTS ENDPOINTS
 
+// Download attachment (MUST be before general attachments route)
+app.get('/api/contacts/:contactId/attachments/:attachmentId/download', (req, res, next) => {
+  console.log('=== DOWNLOAD MIDDLEWARE HIT ===');
+  console.log('URL:', req.url);
+  console.log('Path:', req.path);
+  console.log('Method:', req.method);
+  next();
+}, async (req, res) => {
+  console.log('=== DOWNLOAD ENDPOINT HIT ===');
+  console.log('Params:', req.params);
+  
+  const { contactId, attachmentId } = req.params;
+  
+  try {
+    const result = await pool.query(
+      'SELECT * FROM contact_attachments WHERE id = $1 AND contact_id = $2',
+      [attachmentId, contactId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Attachment not found'
+      });
+    }
+    
+    const attachment = result.rows[0];
+    const filePath = attachment.file_path;
+    
+    console.log('=== DOWNLOAD ATTACHMENT ===');
+    console.log('Attachment ID:', attachmentId);
+    console.log('Contact ID:', contactId);
+    console.log('Attachment data:', attachment);
+    console.log('Expected file path:', filePath);
+    console.log('File exists:', fs.existsSync(filePath));
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      console.error('File not found at path:', filePath);
+      return res.status(404).json({
+        success: false,
+        error: 'File not found on server'
+      });
+    }
+    
+    // Set headers for file download
+    res.setHeader('Content-Disposition', 'attachment; filename="' + attachment.original_filename + '"');
+    res.setHeader('Content-Type', attachment.file_type);
+    
+    // Stream file to client
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+    
+  } catch (error) {
+    console.error('Error downloading attachment:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to download attachment'
+    });
+  }
+});
+
+// Delete attachment (MUST be before general attachments route)
+app.delete('/api/contacts/:contactId/attachments/:attachmentId', async (req, res) => {
+  const { contactId, attachmentId } = req.params;
+  
+  try {
+    // Get attachment info first
+    const attachmentResult = await pool.query(
+      'SELECT * FROM contact_attachments WHERE id = $1 AND contact_id = $2',
+      [attachmentId, contactId]
+    );
+    
+    if (attachmentResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Attachment not found'
+      });
+    }
+    
+    const attachment = attachmentResult.rows[0];
+    
+    // Delete from database
+    await pool.query(
+      'DELETE FROM contact_attachments WHERE id = $1 AND contact_id = $2',
+      [attachmentId, contactId]
+    );
+    
+    // Delete file from filesystem
+    if (fs.existsSync(attachment.file_path)) {
+      fs.unlink(attachment.file_path, (err) => {
+        if (err) console.error('Error deleting file:', err);
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Attachment deleted successfully'
+    });
+    
+  } catch (error) {
+    console.error('Error deleting attachment:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete attachment'
+    });
+  }
+});
+
 // Get attachments for a contact
 app.get('/api/contacts/:contactId/attachments', async (req, res) => {
   const { contactId } = req.params;
@@ -841,110 +950,6 @@ app.post('/api/contacts/:contactId/attachments', (req, res, next) => {
     res.status(500).json({
       success: false,
       error: 'Failed to upload attachment: ' + error.message
-    });
-  }
-});
-
-// Download attachment  
-app.get('/api/contacts/:contactId/attachments/:attachmentId/download', async (req, res) => {
-  console.log('=== DOWNLOAD ENDPOINT HIT ===');
-  console.log('Params:', req.params);
-  
-  const { contactId, attachmentId } = req.params;
-  
-  try {
-    const result = await pool.query(
-      'SELECT * FROM contact_attachments WHERE id = $1 AND contact_id = $2',
-      [attachmentId, contactId]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Attachment not found'
-      });
-    }
-    
-    const attachment = result.rows[0];
-    const filePath = attachment.file_path;
-    
-    console.log('=== DOWNLOAD ATTACHMENT ===');
-    console.log('Attachment ID:', attachmentId);
-    console.log('Contact ID:', contactId);
-    console.log('Attachment data:', attachment);
-    console.log('Expected file path:', filePath);
-    console.log('File exists:', fs.existsSync(filePath));
-    
-    // Check if file exists
-    if (!fs.existsSync(filePath)) {
-      console.error('File not found at path:', filePath);
-      return res.status(404).json({
-        success: false,
-        error: 'File not found on server'
-      });
-    }
-    
-    // Set headers for file download
-    res.setHeader('Content-Disposition', 'attachment; filename="' + attachment.original_filename + '"');
-    res.setHeader('Content-Type', attachment.file_type);
-    
-    // Stream file to client
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.pipe(res);
-    
-  } catch (error) {
-    console.error('Error downloading attachment:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to download attachment'
-    });
-  }
-});
-
-// Delete attachment
-app.delete('/api/contacts/:contactId/attachments/:attachmentId', async (req, res) => {
-  const { contactId, attachmentId } = req.params;
-  
-  try {
-    // Get attachment info before deleting
-    const result = await pool.query(
-      'SELECT * FROM contact_attachments WHERE id = $1 AND contact_id = $2',
-      [attachmentId, contactId]
-    );
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Attachment not found'
-      });
-    }
-    
-    const attachment = result.rows[0];
-    
-    // Delete from database
-    await pool.query(
-      'DELETE FROM contact_attachments WHERE id = $1 AND contact_id = $2',
-      [attachmentId, contactId]
-    );
-    
-    // Delete file from filesystem
-    const filePath = path.join(__dirname, 'uploads', 'contacts', attachment.filename);
-    if (fs.existsSync(filePath)) {
-      fs.unlink(filePath, (err) => {
-        if (err) console.error('Error deleting file:', err);
-      });
-    }
-    
-    res.json({
-      success: true,
-      message: 'Attachment deleted successfully'
-    });
-    
-  } catch (error) {
-    console.error('Error deleting attachment:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to delete attachment'
     });
   }
 });
