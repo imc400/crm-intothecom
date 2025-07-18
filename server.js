@@ -303,7 +303,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
+    fileSize: 50 * 1024 * 1024 // 50MB limit
   },
   fileFilter: (req, file, cb) => {
     // Allow common file types
@@ -328,9 +328,22 @@ app.use((error, req, res, next) => {
   
   if (error) {
     console.error('Multer error:', error);
-    return res.status(400).json({
+    
+    let errorMessage = 'File upload error: ' + error.message;
+    let statusCode = 400;
+    
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      errorMessage = 'El archivo es demasiado grande. Tamaño máximo permitido: 50MB';
+      statusCode = 413;
+    } else if (error.code === 'LIMIT_FILE_COUNT') {
+      errorMessage = 'Demasiados archivos. Solo se permite un archivo a la vez';
+    } else if (error.code === 'LIMIT_UNEXPECTED_FILE') {
+      errorMessage = 'Campo de archivo inesperado';
+    }
+    
+    return res.status(statusCode).json({
       success: false,
-      error: 'File upload error: ' + error.message
+      error: errorMessage
     });
   }
   next();
@@ -4687,6 +4700,14 @@ app.get('/', (req, res) => {
           gap: 10px;
           align-items: center;
           margin-bottom: 10px;
+          flex-wrap: wrap;
+        }
+        
+        .file-size-info {
+          color: var(--text-muted);
+          font-size: 12px;
+          width: 100%;
+          margin-top: 5px;
         }
 
         .file-input {
@@ -5303,6 +5324,7 @@ app.get('/', (req, res) => {
                   <input type="file" id="attachmentFile" class="file-input" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.jpg,.jpeg,.png,.gif,.zip,.rar">
                   <input type="text" id="attachmentName" class="form-input" placeholder="Nombre descriptivo (ej: Propuesta comercial)" maxlength="100">
                   <button type="button" class="btn btn-primary btn-small" onclick="uploadAttachment()">Subir Archivo</button>
+                  <small class="file-size-info">Tamaño máximo: 50MB</small>
                 </div>
               </div>
               
