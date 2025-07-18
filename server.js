@@ -8385,6 +8385,15 @@ app.get('/', (req, res) => {
               return contact.tags.includes(stage.tag);
             });
             
+            // Sort 'propuesta enviada' contacts by days (highest first)
+            if (stage.tag === 'propuesta enviada') {
+              stageContacts.sort((a, b) => {
+                const aDays = a.days_since_proposal || 0;
+                const bDays = b.days_since_proposal || 0;
+                return bDays - aDays; // Descending order (mayor a menor)
+              });
+            }
+            
             const columnHtml = 
               '<div class="kanban-column" data-stage="' + stage.tag + '">' +
                 '<div class="kanban-column-header">' +
