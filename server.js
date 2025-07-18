@@ -1489,18 +1489,50 @@ app.get('/api/projects/:year/:month', async (req, res) => {
       total_amount: parseFloat(project.total_amount)
     }));
     
-    // Get month-specific data
+    // Get current UF value
+    let currentUFValue = 37000; // Default fallback
+    try {
+      const ufApiResponse = await fetch('https://mindicador.cl/api/uf');
+      const ufData = await ufApiResponse.json();
+      
+      if (ufData && ufData.serie && ufData.serie.length > 0) {
+        const latestUF = ufData.serie[0];
+        currentUFValue = parseFloat(latestUF.valor);
+      }
+    } catch (error) {
+      console.error('Error fetching UF value:', error);
+    }
+    
+    // Get month-specific data with currency conversion
     const monthlyIncomeResult = await pool.query(`
-      SELECT COALESCE(SUM(amount), 0) as monthly_income
-      FROM project_payments
-      WHERE payment_year = $1 AND payment_month = $2
-    `, [year, month]);
+      SELECT 
+        COALESCE(
+          SUM(
+            CASE 
+              WHEN p.currency = 'UF' THEN pp.amount * $3
+              ELSE pp.amount 
+            END
+          ), 0
+        ) as monthly_income
+      FROM project_payments pp
+      JOIN projects p ON pp.project_id = p.id
+      WHERE pp.payment_year = $1 AND pp.payment_month = $2 AND pp.payment_status = 'received'
+    `, [year, month, currentUFValue]);
     
     const pendingPaymentsResult = await pool.query(`
-      SELECT COALESCE(SUM(amount), 0) as pending_payments
-      FROM project_payments
-      WHERE payment_status = 'pending'
-    `);
+      SELECT 
+        COALESCE(
+          SUM(
+            CASE 
+              WHEN p.currency = 'UF' THEN pp.amount * $1
+              ELSE pp.amount 
+            END
+          ), 0
+        ) as pending_payments
+      FROM project_payments pp
+      JOIN projects p ON pp.project_id = p.id
+      WHERE pp.payment_status = 'pending'
+    `, [currentUFValue]);
     
     res.json({
       success: true,
@@ -10940,7 +10972,7 @@ app.get('/', (req, res) => {
                   
                   row.innerHTML = 
                     '<td>' + project.project_name + '</td>' +
-                    '<td>' + (project.contact_name || project.contact_email) + '</td>' +
+                    '<td>' + (project.company || project.contact_name || project.contact_email) + '</td>' +
                     '<td>' + totalFormatted + '</td>' +
                     '<td>' + paidFormatted + '</td>' +
                     '<td>' + pendingFormatted + '</td>' +
@@ -11197,8 +11229,52 @@ app.get('/', (req, res) => {
         }
 
         function addProjectPayment(projectId) {
-          // TODO: Implement add payment modal
-          alert('Agregar pago al proyecto: ' + projectId);
+          document.getElementById('paymentProjectId').value = projectId;
+          document.getElementById('paymentModal').style.display = 'block';
+        }
+
+        function closePaymentModal() {
+          document.getElementById('paymentModal').style.display = 'none';
+          document.getElementById('paymentForm').reset();
+        }
+
+        async function submitPayment() {
+          const form = document.getElementById('paymentForm');
+          const formData = new FormData(form);
+          
+          try {
+            const paymentData = {
+              project_id: parseInt(formData.get('projectId')),
+              amount: parseFloat(formData.get('amount')),
+              payment_status: formData.get('paymentStatus'),
+              payment_date: formData.get('paymentDate'),
+              description: formData.get('description') || ''
+            };
+            
+            // Set payment year and month based on payment date
+            const paymentDate = new Date(paymentData.payment_date);
+            paymentData.payment_year = paymentDate.getFullYear();
+            paymentData.payment_month = paymentDate.getMonth() + 1;
+            
+            const response = await fetch('/api/project-payments', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(paymentData)
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              alert('Pago agregado exitosamente');
+              closePaymentModal();
+              loadProyectosData(); // Refresh the projects table
+            } else {
+              alert('Error al agregar el pago: ' + result.error);
+            }
+          } catch (error) {
+            console.error('Error adding payment:', error);
+            alert('Error al agregar el pago');
+          }
         }
 
         async function deleteProject(projectId, projectName) {
@@ -11889,6 +11965,51 @@ app.get('/', (req, res) => {
           <div class="modal-footer">
             <button type="button" class="btn btn-outline" onclick="closeCreateProjectModal()">Cancelar</button>
             <button type="button" class="btn btn-primary" onclick="createNewProject()">Crear Proyecto</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Payment Management Modal -->
+      <div id="paymentModal" class="modal" style="display: none;">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2>Gestión de Pago de Proyecto</h2>
+            <span class="close-btn" onclick="closePaymentModal()">&times;</span>
+          </div>
+          <div class="modal-body">
+            <form id="paymentForm">
+              <input type="hidden" id="paymentProjectId" name="projectId">
+              
+              <div class="form-group">
+                <label for="paymentAmount">Monto del Pago</label>
+                <input type="number" id="paymentAmount" name="amount" step="0.01" required class="form-control" 
+                       placeholder="Ej: 15 (para UF) o 500000 (para CLP)">
+              </div>
+
+              <div class="form-group">
+                <label for="paymentStatus">Estado del Pago</label>
+                <select id="paymentStatus" name="paymentStatus" required class="form-control">
+                  <option value="">Selecciona un estado...</option>
+                  <option value="pending">Pendiente</option>
+                  <option value="received">Pagado</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label for="paymentDate">Fecha del Pago</label>
+                <input type="date" id="paymentDate" name="paymentDate" required class="form-control">
+              </div>
+
+              <div class="form-group">
+                <label for="paymentDescription">Descripción (Opcional)</label>
+                <textarea id="paymentDescription" name="description" class="form-control" rows="2" 
+                          placeholder="Detalles del pago..."></textarea>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline" onclick="closePaymentModal()">Cancelar</button>
+            <button type="button" class="btn btn-primary" onclick="submitPayment()">Agregar Pago</button>
           </div>
         </div>
       </div>
