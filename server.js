@@ -6149,14 +6149,12 @@ app.get('/', (req, res) => {
                         <th>Ajuste Mensual</th>
                         <th>Precio Final</th>
                         <th>Moneda</th>
-                        <th>Motivo</th>
-                        <th>Estado</th>
                         <th>Acciones</th>
                       </tr>
                     </thead>
                     <tbody id="financeTableBody">
                       <tr>
-                        <td colspan="9" class="no-data">Cargando datos financieros...</td>
+                        <td colspan="7" class="no-data">Cargando datos financieros...</td>
                       </tr>
                     </tbody>
                   </table>
@@ -9775,8 +9773,6 @@ app.get('/', (req, res) => {
                   '<td>' +
                     '<span class="currency-badge ' + (client.final_currency ? client.final_currency.toLowerCase() : 'clp') + '">' + (client.final_currency || 'CLP') + '</span>' +
                   '</td>' +
-                  '<td>' + (client.adjustment_reason || 'Precio base del contrato') + '</td>' +
-                  '<td><span class="billing-status ' + (client.billing_status || 'pending') + '">' + (client.billing_status || 'pending') + '</span></td>' +
                   '<td>' +
                     '<div class="finance-actions">' +
                       '<button class="btn btn-sm btn-primary" onclick="openMonthlyBillingModal(' + client.contact_id + ')">' +
@@ -9788,11 +9784,11 @@ app.get('/', (req, res) => {
                 tbody.appendChild(row);
               });
             } else {
-              tbody.innerHTML = '<tr><td colspan="9" class="no-data">No hay clientes activos para este mes</td></tr>';
+              tbody.innerHTML = '<tr><td colspan="7" class="no-data">No hay clientes activos para este mes</td></tr>';
             }
           } catch (error) {
             console.error('Error loading monthly billing:', error);
-            document.getElementById('financeTableBody').innerHTML = '<tr><td colspan="9" class="no-data">Error cargando datos</td></tr>';
+            document.getElementById('financeTableBody').innerHTML = '<tr><td colspan="7" class="no-data">Error cargando datos</td></tr>';
           }
         }
 
