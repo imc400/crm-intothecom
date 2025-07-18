@@ -8005,7 +8005,7 @@ app.get('/', (req, res) => {
             // Verificar si la respuesta HTTP es exitosa
             if (!response.ok) {
               const errorData = await response.json().catch(() => ({}));
-              throw new Error(\`HTTP \${response.status}: \${errorData.error || 'Error del servidor'}\`);
+              throw new Error('HTTP ' + response.status + ': ' + (errorData.error || 'Error del servidor'));
             }
             
             const result = await response.json();
