@@ -5043,13 +5043,22 @@ app.get('/', (req, res) => {
           
           if (!authButton) {
             console.warn('Auth button not found in DOM');
+            // Retry after a short delay if DOM is not ready
+            setTimeout(() => {
+              console.log('Retrying updateAuthButton...');
+              updateAuthButton(isAuthenticated);
+            }, 500);
             return;
           }
           
+          console.log('Updating auth button, isAuthenticated:', isAuthenticated);
+          
           if (isAuthenticated) {
+            console.log('Setting auth button to authenticated state');
             authButton.innerHTML = '<div class="connection-status connected">&#x2713; Conectado</div>';
             startAutoSync();
           } else {
+            console.log('Setting auth button to unauthenticated state');
             authButton.innerHTML = '<button class="btn btn-primary" onclick="authenticateGoogle()">Conectar Google</button>';
             stopAutoSync();
             // Also update calendar grid to show connection prompt
@@ -5126,13 +5135,24 @@ app.get('/', (req, res) => {
         
         // Check auth status on page load
         document.addEventListener('DOMContentLoaded', () => {
+          console.log('DOMContentLoaded event fired');
           updateCalendarTitle();
-          // Increased delay to ensure DOM is fully rendered and server state is consistent
-          setTimeout(() => {
-            checkAuthStatus();
-            // Start periodic auth check
-            startAuthCheck();
-          }, 1000);
+          
+          // Ensure DOM is fully ready before checking auth
+          function waitForDOM() {
+            const authButton = document.getElementById('authButton');
+            if (authButton) {
+              console.log('DOM is ready, checking auth status');
+              checkAuthStatus();
+              // Start periodic auth check
+              startAuthCheck();
+            } else {
+              console.log('DOM not ready, waiting...');
+              setTimeout(waitForDOM, 100);
+            }
+          }
+          
+          waitForDOM();
         });
         
         // Check auth status when tab becomes visible, but don't reload events unnecessarily
@@ -5141,6 +5161,34 @@ app.get('/', (req, res) => {
             checkAuthStatusOnly();
           }
         });
+        
+        // Force auth check on window load as backup
+        window.addEventListener('load', () => {
+          console.log('Window load event - forcing auth check');
+          setTimeout(() => {
+            checkAuthStatus();
+          }, 500);
+        });
+        
+        // Additional check - ensure auth button is properly set up
+        function ensureAuthButtonState() {
+          const authButton = document.getElementById('authButton');
+          if (!authButton) {
+            console.log('Auth button still not found, will retry...');
+            setTimeout(ensureAuthButtonState, 200);
+            return;
+          }
+          
+          console.log('Auth button found, checking current state');
+          // Check if button is still in its default state
+          if (authButton.innerHTML.includes('Conectar Google')) {
+            console.log('Auth button is in default state, checking auth status');
+            checkAuthStatus();
+          }
+        }
+        
+        // Start the auth button state check
+        setTimeout(ensureAuthButtonState, 1500);
 
         // Clean up on page unload
         window.addEventListener('beforeunload', () => {
