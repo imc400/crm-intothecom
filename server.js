@@ -118,9 +118,9 @@ async function initDatabase() {
         await pool.query(`SELECT ${column.name} FROM contacts LIMIT 1`);
       } catch (columnError) {
         if (columnError.code === '42703') { // Column does not exist
-          console.log(`Adding ${column.name} column to contacts table...`);
-          await pool.query(`ALTER TABLE contacts ADD COLUMN ${column.name} ${column.type}`);
-          console.log(`${column.name} column added successfully`);
+          console.log('Adding ' + column.name + ' column to contacts table...');
+          await pool.query('ALTER TABLE contacts ADD COLUMN ' + column.name + ' ' + column.type);
+          console.log(column.name + ' column added successfully');
         }
       }
     }
@@ -1328,7 +1328,7 @@ app.post('/api/sync', async (req, res) => {
         
       } catch (eventError) {
         console.error('Error processing event:', event.id, eventError);
-        result.errors.push(`Event ${event.id}: ${eventError.message}`);
+        result.errors.push('Event ' + event.id + ': ' + eventError.message);
       }
     }
     
@@ -1903,7 +1903,7 @@ app.post('/api/events', async (req, res) => {
     // Prepare event data
     const eventData = {
       summary: summary,
-      description: description + (notes ? `\n\n--- Internal Notes ---\n${notes}` : ''),
+      description: description + (notes ? '\n\n--- Internal Notes ---\n' + notes : ''),
       start: {
         dateTime: start,
         timeZone: 'America/New_York'
@@ -2004,7 +2004,7 @@ const storage = multer.diskStorage({
     const timestamp = Date.now();
     const randomNum = Math.floor(Math.random() * 1000);
     const sanitizedOriginalName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const uniqueFilename = `${timestamp}-${randomNum}-${sanitizedOriginalName}`;
+    const uniqueFilename = timestamp + '-' + randomNum + '-' + sanitizedOriginalName;
     cb(null, uniqueFilename);
   }
 });
@@ -6987,7 +6987,7 @@ app.get('/', (req, res) => {
         // Load attachments for a contact
         async function loadContactAttachments(contactId) {
           try {
-            const response = await fetch(`/api/contacts/${contactId}/attachments`);
+            const response = await fetch('/api/contacts/' + contactId + '/attachments');
             const result = await response.json();
             
             if (result.success) {
@@ -7009,24 +7009,24 @@ app.get('/', (req, res) => {
             return;
           }
           
-          attachmentsList.innerHTML = attachments.map(attachment => `
-            <div class="attachment-item">
-              <div class="attachment-info">
-                <div class="attachment-name">${safeOnclick(attachment.display_name)}</div>
-                <div class="attachment-details">
-                  ${safeOnclick(attachment.original_filename)} • ${formatFileSize(attachment.file_size)} • ${formatDate(attachment.uploaded_at)}
-                </div>
-              </div>
-              <div class="attachment-actions">
-                <button class="btn-attachment btn-download" onclick="downloadAttachment(${attachment.id})">
-                  Descargar
-                </button>
-                <button class="btn-attachment btn-delete" onclick="deleteAttachment(${attachment.id})">
-                  Eliminar
-                </button>
-              </div>
-            </div>
-          `).join('');
+          attachmentsList.innerHTML = attachments.map(attachment => 
+            '<div class="attachment-item">' +
+              '<div class="attachment-info">' +
+                '<div class="attachment-name">' + safeOnclick(attachment.display_name) + '</div>' +
+                '<div class="attachment-details">' +
+                  safeOnclick(attachment.original_filename) + ' • ' + formatFileSize(attachment.file_size) + ' • ' + formatDate(attachment.uploaded_at) +
+                '</div>' +
+              '</div>' +
+              '<div class="attachment-actions">' +
+                '<button class="btn-attachment btn-download" onclick="downloadAttachment(' + attachment.id + ')">' +
+                  'Descargar' +
+                '</button>' +
+                '<button class="btn-attachment btn-delete" onclick="deleteAttachment(' + attachment.id + ')">' +
+                  'Eliminar' +
+                '</button>' +
+              '</div>' +
+            '</div>'
+          ).join('');
         }
         
         // Upload attachment
@@ -7105,7 +7105,7 @@ app.get('/', (req, res) => {
           }
           
           try {
-            const response = await fetch(`/api/contacts/${currentContactData.id}/attachments/${attachmentId}`, {
+            const response = await fetch('/api/contacts/' + currentContactData.id + '/attachments/' + attachmentId, {
               method: 'DELETE'
             });
             
@@ -8988,10 +8988,10 @@ app.get('/', (req, res) => {
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 CRM Server running on port ${PORT}`);
-  console.log(`📱 Web interface: http://localhost:${PORT}`);
-  console.log(`🔗 API endpoints:`);
-  console.log(`   GET  /api/contacts - Get all contacts`);
+  console.log('🚀 CRM Server running on port ' + PORT);
+  console.log('📱 Web interface: http://localhost:' + PORT);
+  console.log('🔗 API endpoints:');
+  console.log('   GET  /api/contacts - Get all contacts');
   console.log(`   GET  /api/contacts/new - Get new contacts`);
   console.log(`   POST /api/sync - Manual sync`);
 });
