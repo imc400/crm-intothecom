@@ -383,6 +383,24 @@ app.use((req, res, next) => {
   next();
 });
 
+// Debug endpoint to check attachments
+app.get('/debug/attachments/:contactId', async (req, res) => {
+  const { contactId } = req.params;
+  try {
+    const result = await pool.query('SELECT * FROM contact_attachments WHERE contact_id = $1', [contactId]);
+    res.json({
+      success: true,
+      attachments: result.rows,
+      message: 'Debug info for contact ' + contactId
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
