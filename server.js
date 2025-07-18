@@ -1468,8 +1468,8 @@ app.get('/api/projects/:year/:month', async (req, res) => {
     const result = await pool.query(`
       SELECT 
         p.*,
-        c.name as client_name,
-        c.email as client_email,
+        c.name as contact_name,
+        c.email as contact_email,
         c.company,
         COALESCE(SUM(CASE WHEN pp.payment_status = 'received' THEN pp.amount ELSE 0 END), 0) as paid_amount,
         COALESCE(SUM(CASE WHEN pp.payment_status = 'pending' THEN pp.amount ELSE 0 END), 0) as pending_amount,
@@ -10882,12 +10882,37 @@ app.get('/', (req, res) => {
               if (data.data.projects.length > 0) {
                 data.data.projects.forEach(project => {
                   const row = document.createElement('tr');
+                  
+                  // Format amounts based on currency
+                  let totalFormatted, paidFormatted, pendingFormatted;
+                  if (project.currency === 'UF') {
+                    if (project.total_amount % 1 === 0) {
+                      totalFormatted = 'UF' + Math.round(project.total_amount).toLocaleString('es-CL');
+                    } else {
+                      totalFormatted = 'UF' + project.total_amount.toLocaleString('es-CL', { maximumFractionDigits: 1 });
+                    }
+                    if (project.paid_amount % 1 === 0) {
+                      paidFormatted = 'UF' + Math.round(project.paid_amount).toLocaleString('es-CL');
+                    } else {
+                      paidFormatted = 'UF' + project.paid_amount.toLocaleString('es-CL', { maximumFractionDigits: 1 });
+                    }
+                    if (project.pending_amount % 1 === 0) {
+                      pendingFormatted = 'UF' + Math.round(project.pending_amount).toLocaleString('es-CL');
+                    } else {
+                      pendingFormatted = 'UF' + project.pending_amount.toLocaleString('es-CL', { maximumFractionDigits: 1 });
+                    }
+                  } else {
+                    totalFormatted = '$' + Math.round(project.total_amount).toLocaleString('es-CL');
+                    paidFormatted = '$' + Math.round(project.paid_amount).toLocaleString('es-CL');
+                    pendingFormatted = '$' + Math.round(project.pending_amount).toLocaleString('es-CL');
+                  }
+                  
                   row.innerHTML = 
                     '<td>' + project.project_name + '</td>' +
-                    '<td>' + (project.client_name || project.client_email) + '</td>' +
-                    '<td>$ ' + project.total_amount.toLocaleString('es-CL') + '</td>' +
-                    '<td>$ ' + project.paid_amount.toLocaleString('es-CL') + '</td>' +
-                    '<td>$ ' + project.pending_amount.toLocaleString('es-CL') + '</td>' +
+                    '<td>' + (project.contact_name || project.contact_email) + '</td>' +
+                    '<td>' + totalFormatted + '</td>' +
+                    '<td>' + paidFormatted + '</td>' +
+                    '<td>' + pendingFormatted + '</td>' +
                     '<td>' + (project.project_status === 'active' ? 'Activo' : 'Completado') + '</td>' +
                     '<td>' +
                       '<button class="btn btn-sm btn-secondary" onclick="viewProjectDetails(' + project.id + ')">Ver</button>' +
