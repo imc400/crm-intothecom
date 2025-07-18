@@ -263,6 +263,10 @@ async function initDatabase() {
         ORDER BY ordinal_position
       `);
       console.log('Current contact_attachments table schema:', attachmentsSchemaResult.rows);
+      
+      if (attachmentsSchemaResult.rows.length === 0) {
+        console.log('WARNING: contact_attachments table appears to be empty or not found!');
+      }
     } catch (schemaError) {
       console.error('Error checking table schemas:', schemaError);
     }
@@ -317,6 +321,11 @@ const upload = multer({
 
 // Error handling middleware for multer
 app.use((error, req, res, next) => {
+  console.log('=== ERROR MIDDLEWARE TRIGGERED ===');
+  console.log('Error:', error);
+  console.log('Request URL:', req.url);
+  console.log('Request method:', req.method);
+  
   if (error) {
     console.error('Multer error:', error);
     return res.status(400).json({
@@ -675,7 +684,11 @@ app.get('/api/contacts/:contactId/attachments', async (req, res) => {
 });
 
 // Upload attachment for a contact
-app.post('/api/contacts/:contactId/attachments', upload.single('file'), async (req, res) => {
+app.post('/api/contacts/:contactId/attachments', (req, res, next) => {
+  console.log('=== BEFORE MULTER MIDDLEWARE ===');
+  console.log('Request received for attachments upload');
+  next();
+}, upload.single('file'), async (req, res) => {
   console.log('=== ATTACHMENT UPLOAD ENDPOINT CALLED ===');
   console.log('ContactId:', req.params.contactId);
   console.log('Body:', req.body);
