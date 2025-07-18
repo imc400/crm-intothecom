@@ -7984,13 +7984,8 @@ app.get('/', (req, res) => {
                       'Untagged': '○'
                     };
                     
-                    const tagColors = {
-                      'New Lead': '#FF6B00',
-                      'Untagged': '#718096'
-                    };
-                    
                     const icon = tagIcons[tag] || '🏷️';
-                    const color = tagColors[tag] || '#718096';
+                    const color = getTagColor(tag);
                     
                     html += '<div style="margin-bottom: 25px;">';
                     html += '<h3 style="color: ' + color + '; margin-bottom: 15px; font-size: 18px;">' + icon + ' ' + tag + ' (' + contacts.length + ')</h3>';
