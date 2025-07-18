@@ -1710,22 +1710,23 @@ app.get('/api/financial-summary/:year/:month', async (req, res) => {
     // Get current UF value from external API
     let currentUFValue = 37000; // Default fallback
     try {
-      // Try to get UF value from Chilean API (CMF)
-      const ufApiResponse = await fetch('https://api.cmfchile.cl/api-sbifv3/recursos_api/uf/2025?apikey=caa54e3e35a3b1e0e9ddc7a4b1b53b11f8ab8a4e&formato=json');
+      // Try to get UF value from mindicador.cl API (most reliable)
+      const ufApiResponse = await fetch('https://mindicador.cl/api/uf');
       const ufData = await ufApiResponse.json();
       
-      if (ufData && ufData.UFs && ufData.UFs.length > 0) {
-        const latestUF = ufData.UFs[ufData.UFs.length - 1];
-        currentUFValue = parseFloat(latestUF.Valor.replace(',', '.'));
-        console.log('UF value from API:', currentUFValue);
+      if (ufData && ufData.serie && ufData.serie.length > 0) {
+        const latestUF = ufData.serie[0];
+        currentUFValue = parseFloat(latestUF.valor);
+        console.log('UF value from mindicador.cl API:', currentUFValue);
+        console.log('UF date:', latestUF.fecha);
         
         // Update database with latest value
         await pool.query('INSERT INTO uf_values (date, value) VALUES (CURRENT_DATE, $1) ON CONFLICT DO NOTHING', [currentUFValue]);
       } else {
-        throw new Error('No UF data from API');
+        throw new Error('No UF data from mindicador.cl API');
       }
     } catch (apiError) {
-      console.log('Could not get UF from API, trying database...');
+      console.log('Could not get UF from mindicador.cl API, trying database...', apiError.message);
       // Fallback to database
       try {
         const ufResponse = await pool.query('SELECT value FROM uf_values ORDER BY date DESC LIMIT 1');
@@ -10475,6 +10476,8 @@ app.get('/', (req, res) => {
               // Sync UF value and display it
               currentUFValue = data.data.currentUFValue;
               document.getElementById('currentUF').textContent = formatCLP(currentUFValue);
+              
+              console.log('Frontend UF value updated to:', currentUFValue);
             }
           } catch (error) {
             console.error('Error calculating totals from backend:', error);
@@ -10789,6 +10792,7 @@ app.get('/', (req, res) => {
               
               // Update the global UF value to match backend
               currentUFValue = backendUFValue;
+              console.log('Resumen General UF value updated to:', currentUFValue);
               
               // Update summary cards
               document.getElementById('totalCLPResumen').textContent = formatCLP(data.data.monthlyBilling.totalCLP);
