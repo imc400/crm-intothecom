@@ -272,6 +272,49 @@ async function initDatabase() {
     }
     console.log('Financial fields added to contacts table successfully');
     
+    // Create client_contracts table
+    console.log('Creating client_contracts table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS client_contracts (
+        id SERIAL PRIMARY KEY,
+        contact_id INTEGER UNIQUE REFERENCES contacts(id),
+        base_monthly_price DECIMAL(10,2),
+        base_currency VARCHAR(10) DEFAULT 'CLP',
+        contract_start_date DATE,
+        contract_end_date DATE,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('client_contracts table created successfully');
+    
+    // Create monthly_billing table
+    console.log('Creating monthly_billing table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS monthly_billing (
+        id SERIAL PRIMARY KEY,
+        contact_id INTEGER REFERENCES contacts(id),
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        adjusted_price DECIMAL(10,2),
+        currency VARCHAR(10) DEFAULT 'CLP',
+        adjustment_reason TEXT,
+        adjustment_type VARCHAR(20) DEFAULT 'manual',
+        base_price DECIMAL(10,2),
+        adjustment_amount DECIMAL(10,2),
+        billing_status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(contact_id, year, month)
+      )
+    `);
+    console.log('monthly_billing table created successfully');
+    
+    // Migrate existing financial data to new structure
+    console.log('Migrating existing financial data...');
+    await migrateFinancialData();
+    
     console.log('Database initialized successfully');
     
     // Force check contact_attachments table
@@ -331,6 +374,61 @@ async function initDatabase() {
     
   } catch (error) {
     console.error('Database initialization error:', error);
+  }
+}
+
+// Function to migrate existing financial data to new structure
+async function migrateFinancialData() {
+  try {
+    // Get all contacts with financial data
+    const contactsResult = await pool.query(`
+      SELECT id, monthly_price, currency, contract_start_date, is_active_client 
+      FROM contacts 
+      WHERE is_active_client = true AND monthly_price IS NOT NULL
+    `);
+    
+    for (const contact of contactsResult.rows) {
+      // Create contract record
+      await pool.query(`
+        INSERT INTO client_contracts (
+          contact_id, base_monthly_price, base_currency, 
+          contract_start_date, is_active
+        ) VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (contact_id) DO NOTHING
+      `, [
+        contact.id,
+        contact.monthly_price,
+        contact.currency || 'CLP',
+        contact.contract_start_date,
+        contact.is_active_client
+      ]);
+      
+      // Create current month billing record
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      
+      await pool.query(`
+        INSERT INTO monthly_billing (
+          contact_id, year, month, adjusted_price, currency, 
+          adjustment_reason, base_price, adjustment_amount
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (contact_id, year, month) DO NOTHING
+      `, [
+        contact.id,
+        currentYear,
+        currentMonth,
+        contact.monthly_price,
+        contact.currency || 'CLP',
+        'Precio base del contrato',
+        contact.monthly_price,
+        0
+      ]);
+    }
+    
+    console.log('Financial data migration completed successfully');
+  } catch (error) {
+    console.error('Error migrating financial data:', error);
   }
 }
 
@@ -1107,6 +1205,154 @@ app.post('/api/contacts/:contactId/attachments', (req, res, next) => {
     res.status(500).json({
       success: false,
       error: 'Failed to upload attachment: ' + error.message
+    });
+  }
+});
+
+// MONTHLY BILLING ENDPOINTS
+
+// Get monthly billing data for a specific month
+app.get('/api/monthly-billing/:year/:month', async (req, res) => {
+  const { year, month } = req.params;
+  
+  try {
+    // Get all active client contracts
+    const contractsResult = await pool.query(`
+      SELECT 
+        c.id as contact_id,
+        c.name,
+        c.email,
+        cc.base_monthly_price,
+        cc.base_currency,
+        cc.contract_start_date,
+        mb.adjusted_price,
+        mb.currency,
+        mb.adjustment_reason,
+        mb.adjustment_type,
+        mb.adjustment_amount,
+        mb.billing_status,
+        COALESCE(mb.adjusted_price, cc.base_monthly_price) as final_price,
+        COALESCE(mb.currency, cc.base_currency) as final_currency
+      FROM contacts c
+      INNER JOIN client_contracts cc ON c.id = cc.contact_id
+      LEFT JOIN monthly_billing mb ON c.id = mb.contact_id 
+        AND mb.year = $1 AND mb.month = $2
+      WHERE cc.is_active = true
+      ORDER BY c.name
+    `, [year, month]);
+    
+    res.json({
+      success: true,
+      data: contractsResult.rows,
+      year: parseInt(year),
+      month: parseInt(month)
+    });
+  } catch (error) {
+    console.error('Error fetching monthly billing:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch monthly billing data'
+    });
+  }
+});
+
+// Update monthly billing for a specific contact and month
+app.post('/api/monthly-billing/:contactId/:year/:month', async (req, res) => {
+  const { contactId, year, month } = req.params;
+  const { 
+    adjusted_price, 
+    currency, 
+    adjustment_reason, 
+    adjustment_type,
+    billing_status 
+  } = req.body;
+  
+  try {
+    // Get the base contract data
+    const contractResult = await pool.query(`
+      SELECT base_monthly_price, base_currency 
+      FROM client_contracts 
+      WHERE contact_id = $1 AND is_active = true
+    `, [contactId]);
+    
+    if (contractResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No active contract found for this contact'
+      });
+    }
+    
+    const contract = contractResult.rows[0];
+    const basePrice = contract.base_monthly_price;
+    const adjustmentAmount = adjusted_price - basePrice;
+    
+    // Insert or update monthly billing record
+    const result = await pool.query(`
+      INSERT INTO monthly_billing (
+        contact_id, year, month, adjusted_price, currency, 
+        adjustment_reason, adjustment_type, base_price, 
+        adjustment_amount, billing_status
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      ON CONFLICT (contact_id, year, month) 
+      DO UPDATE SET 
+        adjusted_price = $4,
+        currency = $5,
+        adjustment_reason = $6,
+        adjustment_type = $7,
+        adjustment_amount = $9,
+        billing_status = $10,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *
+    `, [
+      contactId, year, month, adjusted_price, currency,
+      adjustment_reason, adjustment_type, basePrice,
+      adjustmentAmount, billing_status || 'pending'
+    ]);
+    
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating monthly billing:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update monthly billing'
+    });
+  }
+});
+
+// Get contract details for a specific contact
+app.get('/api/contracts/:contactId', async (req, res) => {
+  const { contactId } = req.params;
+  
+  try {
+    const result = await pool.query(`
+      SELECT 
+        cc.*,
+        c.name,
+        c.email
+      FROM client_contracts cc
+      INNER JOIN contacts c ON cc.contact_id = c.id
+      WHERE cc.contact_id = $1 AND cc.is_active = true
+    `, [contactId]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'No contract found for this contact'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error fetching contract:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch contract data'
     });
   }
 });
@@ -5356,11 +5602,58 @@ app.get('/', (req, res) => {
           margin-bottom: 30px;
         }
         
+        .finance-title-nav {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 20px;
+        }
+        
         .finance-header h3 {
           color: var(--text-primary);
-          margin-bottom: 20px;
+          margin: 0;
           font-size: 1.5rem;
           font-weight: 600;
+        }
+        
+        .month-navigation {
+          display: flex;
+          align-items: center;
+          gap: 15px;
+        }
+        
+        .month-navigation .nav-btn {
+          background: var(--card-bg);
+          border: 1px solid var(--border-color);
+          color: var(--text-primary);
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          font-size: 1.2rem;
+          font-weight: 600;
+        }
+        
+        .month-navigation .nav-btn:hover {
+          background: var(--primary-color);
+          color: white;
+          transform: scale(1.05);
+        }
+        
+        .current-month {
+          color: var(--text-primary);
+          font-size: 1.1rem;
+          font-weight: 600;
+          min-width: 120px;
+          text-align: center;
+          padding: 8px 16px;
+          background: var(--card-bg);
+          border: 1px solid var(--border-color);
+          border-radius: 8px;
         }
         
         .finance-summary {
@@ -5472,6 +5765,46 @@ app.get('/', (req, res) => {
         .months-active {
           font-weight: 600;
           color: var(--primary-color);
+        }
+        
+        .billing-status {
+          display: inline-block;
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 0.8rem;
+          font-weight: 500;
+          text-transform: uppercase;
+        }
+        
+        .billing-status.pending {
+          background: var(--warning-light);
+          color: var(--warning-dark);
+        }
+        
+        .billing-status.billed {
+          background: var(--info-light);
+          color: var(--info-dark);
+        }
+        
+        .billing-status.paid {
+          background: var(--success-light);
+          color: var(--success-dark);
+        }
+        
+        .adjustment-amount {
+          font-weight: 600;
+        }
+        
+        .adjustment-amount.positive {
+          color: var(--success-dark);
+        }
+        
+        .adjustment-amount.negative {
+          color: var(--error-dark);
+        }
+        
+        .adjustment-amount.zero {
+          color: var(--text-secondary);
         }
         
       </style>
@@ -5631,7 +5964,14 @@ app.get('/', (req, res) => {
             <div id="finanzas-tab" class="tab-content" style="display: none;">
               <div class="finance-container">
                 <div class="finance-header">
-                  <h3>Flujo de Caja Mensual</h3>
+                  <div class="finance-title-nav">
+                    <h3>Flujo de Caja Mensual</h3>
+                    <div class="month-navigation">
+                      <button class="nav-btn" id="prevMonth" onclick="navigateMonth(-1)">‹</button>
+                      <div class="current-month" id="currentMonthDisplay">Julio 2025</div>
+                      <button class="nav-btn" id="nextMonth" onclick="navigateMonth(1)">›</button>
+                    </div>
+                  </div>
                   <div class="finance-summary">
                     <div class="summary-card">
                       <div class="summary-title">Total Mensual CLP</div>
@@ -5654,16 +5994,18 @@ app.get('/', (req, res) => {
                       <tr>
                         <th>Cliente</th>
                         <th>Email</th>
-                        <th>Precio Mensual</th>
+                        <th>Precio Base</th>
+                        <th>Ajuste Mensual</th>
+                        <th>Precio Final</th>
                         <th>Moneda</th>
-                        <th>Fecha Inicio</th>
-                        <th>Meses Activo</th>
+                        <th>Motivo</th>
+                        <th>Estado</th>
                         <th>Acciones</th>
                       </tr>
                     </thead>
                     <tbody id="financeTableBody">
                       <tr>
-                        <td colspan="7" class="no-data">Cargando datos financieros...</td>
+                        <td colspan="9" class="no-data">Cargando datos financieros...</td>
                       </tr>
                     </tbody>
                   </table>
@@ -9063,22 +9405,53 @@ app.get('/', (req, res) => {
 
         // Finance Tab Functions
         let currentUFValue = 37000; // Default fallback value
+        let currentFinanceYear = new Date().getFullYear();
+        let currentFinanceMonth = new Date().getMonth() + 1;
         
         async function loadFinanceData() {
           try {
             // Load current UF value first
             await loadCurrentUFValue();
             
-            // Load active clients data
-            await loadActiveClientsData();
+            // Update month display
+            updateMonthDisplay();
+            
+            // Load monthly billing data
+            await loadMonthlyBillingData();
             
             // Calculate totals
-            calculateFinanceTotals();
+            calculateMonthlyTotals();
             
           } catch (error) {
             console.error('Error loading finance data:', error);
             showStatus('Error cargando datos financieros', 'error');
           }
+        }
+        
+        function updateMonthDisplay() {
+          const monthNames = [
+            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+          ];
+          
+          const monthDisplay = monthNames[currentFinanceMonth - 1] + ' ' + currentFinanceYear;
+          document.getElementById('currentMonthDisplay').textContent = monthDisplay;
+        }
+        
+        function navigateMonth(direction) {
+          currentFinanceMonth += direction;
+          
+          if (currentFinanceMonth > 12) {
+            currentFinanceMonth = 1;
+            currentFinanceYear++;
+          } else if (currentFinanceMonth < 1) {
+            currentFinanceMonth = 12;
+            currentFinanceYear--;
+          }
+          
+          updateMonthDisplay();
+          loadMonthlyBillingData();
+          calculateMonthlyTotals();
         }
 
         async function loadCurrentUFValue() {
@@ -9101,48 +9474,74 @@ app.get('/', (req, res) => {
           }
         }
 
-        async function loadActiveClientsData() {
+        async function loadMonthlyBillingData() {
           try {
-            const response = await fetch('/api/contacts?activeClients=true');
+            const response = await fetch('/api/monthly-billing/' + currentFinanceYear + '/' + currentFinanceMonth);
             const data = await response.json();
             
             const tbody = document.getElementById('financeTableBody');
             
-            if (data.success && data.contacts.length > 0) {
+            if (data.success && data.data.length > 0) {
               tbody.innerHTML = '';
               
-              data.contacts.forEach(contact => {
+              data.data.forEach(client => {
                 const row = document.createElement('tr');
                 
-                // Calculate months active
-                const monthsActive = calculateMonthsActive(contact.contract_start_date);
+                // Calculate base price in CLP
+                let basePriceInCLP = 0;
+                let basePriceDisplay = 'Sin precio';
                 
-                // Calculate price in CLP
-                let priceInCLP = 0;
-                let priceDisplay = 'Sin precio';
-                
-                if (contact.monthly_price) {
-                  if (contact.currency === 'UF') {
-                    priceInCLP = contact.monthly_price * currentUFValue;
-                    priceDisplay = '$' + priceInCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 }) + ' (' + contact.monthly_price + ' UF)';
+                if (client.base_monthly_price) {
+                  if (client.base_currency === 'UF') {
+                    basePriceInCLP = client.base_monthly_price * currentUFValue;
+                    basePriceDisplay = '$' + basePriceInCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 }) + ' (' + client.base_monthly_price + ' UF)';
                   } else {
-                    priceInCLP = contact.monthly_price;
-                    priceDisplay = '$' + priceInCLP.toLocaleString('es-CL');
+                    basePriceInCLP = client.base_monthly_price;
+                    basePriceDisplay = '$' + basePriceInCLP.toLocaleString('es-CL');
                   }
                 }
                 
+                // Calculate final price in CLP
+                let finalPriceInCLP = 0;
+                let finalPriceDisplay = 'Sin precio';
+                
+                if (client.final_price) {
+                  if (client.final_currency === 'UF') {
+                    finalPriceInCLP = client.final_price * currentUFValue;
+                    finalPriceDisplay = '$' + finalPriceInCLP.toLocaleString('es-CL', { maximumFractionDigits: 0 }) + ' (' + client.final_price + ' UF)';
+                  } else {
+                    finalPriceInCLP = client.final_price;
+                    finalPriceDisplay = '$' + finalPriceInCLP.toLocaleString('es-CL');
+                  }
+                }
+                
+                // Calculate adjustment
+                const adjustmentAmount = client.adjustment_amount || 0;
+                let adjustmentDisplay = '$0';
+                let adjustmentClass = 'zero';
+                
+                if (adjustmentAmount > 0) {
+                  adjustmentDisplay = '+$' + adjustmentAmount.toLocaleString('es-CL');
+                  adjustmentClass = 'positive';
+                } else if (adjustmentAmount < 0) {
+                  adjustmentDisplay = '-$' + Math.abs(adjustmentAmount).toLocaleString('es-CL');
+                  adjustmentClass = 'negative';
+                }
+                
                 row.innerHTML = 
-                  '<td>' + (contact.name || 'Sin nombre') + '</td>' +
-                  '<td>' + contact.email + '</td>' +
-                  '<td>' + priceDisplay + '</td>' +
+                  '<td>' + (client.name || 'Sin nombre') + '</td>' +
+                  '<td>' + client.email + '</td>' +
+                  '<td>' + basePriceDisplay + '</td>' +
+                  '<td><span class="adjustment-amount ' + adjustmentClass + '">' + adjustmentDisplay + '</span></td>' +
+                  '<td>' + finalPriceDisplay + '</td>' +
                   '<td>' +
-                    '<span class="currency-badge ' + (contact.currency ? contact.currency.toLowerCase() : 'clp') + '">' + (contact.currency || 'CLP') + '</span>' +
+                    '<span class="currency-badge ' + (client.final_currency ? client.final_currency.toLowerCase() : 'clp') + '">' + (client.final_currency || 'CLP') + '</span>' +
                   '</td>' +
-                  '<td>' + (contact.contract_start_date ? formatDate(contact.contract_start_date) : 'Sin fecha') + '</td>' +
-                  '<td><span class="months-active">' + monthsActive + ' meses</span></td>' +
+                  '<td>' + (client.adjustment_reason || 'Precio base del contrato') + '</td>' +
+                  '<td><span class="billing-status ' + (client.billing_status || 'pending') + '">' + (client.billing_status || 'pending') + '</span></td>' +
                   '<td>' +
                     '<div class="finance-actions">' +
-                      '<button class="btn btn-sm btn-primary" onclick="editFinanceData(' + contact.id + ')">' +
+                      '<button class="btn btn-sm btn-primary" onclick="openMonthlyBillingModal(' + client.contact_id + ')">' +
                         'Editar' +
                       '</button>' +
                     '</div>' +
@@ -9151,11 +9550,11 @@ app.get('/', (req, res) => {
                 tbody.appendChild(row);
               });
             } else {
-              tbody.innerHTML = '<tr><td colspan="7" class="no-data">No hay clientes activos con datos financieros</td></tr>';
+              tbody.innerHTML = '<tr><td colspan="9" class="no-data">No hay clientes activos para este mes</td></tr>';
             }
           } catch (error) {
-            console.error('Error loading active clients:', error);
-            document.getElementById('financeTableBody').innerHTML = '<tr><td colspan="7" class="no-data">Error cargando datos</td></tr>';
+            console.error('Error loading monthly billing:', error);
+            document.getElementById('financeTableBody').innerHTML = '<tr><td colspan="9" class="no-data">Error cargando datos</td></tr>';
           }
         }
 
@@ -9175,9 +9574,9 @@ app.get('/', (req, res) => {
           return date.toLocaleDateString('es-CL');
         }
 
-        async function calculateFinanceTotals() {
+        async function calculateMonthlyTotals() {
           try {
-            const response = await fetch('/api/contacts?activeClients=true');
+            const response = await fetch('/api/monthly-billing/' + currentFinanceYear + '/' + currentFinanceMonth);
             const data = await response.json();
             
             if (data.success) {
@@ -9185,13 +9584,13 @@ app.get('/', (req, res) => {
               let totalUF = 0;
               let totalCLPFromUF = 0;
               
-              data.contacts.forEach(contact => {
-                if (contact.monthly_price) {
-                  if (contact.currency === 'UF') {
-                    totalUF += parseFloat(contact.monthly_price);
-                    totalCLPFromUF += parseFloat(contact.monthly_price) * currentUFValue;
+              data.data.forEach(client => {
+                if (client.final_price) {
+                  if (client.final_currency === 'UF') {
+                    totalUF += parseFloat(client.final_price);
+                    totalCLPFromUF += parseFloat(client.final_price) * currentUFValue;
                   } else {
-                    totalCLP += parseFloat(contact.monthly_price);
+                    totalCLP += parseFloat(client.final_price);
                   }
                 }
               });
@@ -9204,6 +9603,46 @@ app.get('/', (req, res) => {
             }
           } catch (error) {
             console.error('Error calculating totals:', error);
+          }
+        }
+        
+        function openMonthlyBillingModal(contactId) {
+          // For now, show a simple prompt - we'll create a proper modal later
+          const adjustedPrice = prompt('Ingrese el precio ajustado para este mes:');
+          const adjustmentReason = prompt('Motivo del ajuste:');
+          
+          if (adjustedPrice !== null && adjustmentReason !== null) {
+            updateMonthlyBilling(contactId, adjustedPrice, adjustmentReason);
+          }
+        }
+        
+        async function updateMonthlyBilling(contactId, adjustedPrice, adjustmentReason) {
+          try {
+            const response = await fetch('/api/monthly-billing/' + contactId + '/' + currentFinanceYear + '/' + currentFinanceMonth, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                adjusted_price: parseFloat(adjustedPrice),
+                currency: 'CLP', // Default, can be modified later
+                adjustment_reason: adjustmentReason,
+                adjustment_type: 'manual'
+              })
+            });
+            
+            const result = await response.json();
+            
+            if (result.success) {
+              showStatus('Facturación mensual actualizada exitosamente', 'success');
+              loadMonthlyBillingData();
+              calculateMonthlyTotals();
+            } else {
+              showStatus('Error actualizando facturación: ' + result.error, 'error');
+            }
+          } catch (error) {
+            console.error('Error updating monthly billing:', error);
+            showStatus('Error actualizando facturación mensual', 'error');
           }
         }
 
