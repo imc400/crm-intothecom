@@ -1442,13 +1442,8 @@ app.get('/api/auth/status', async (req, res) => {
 
 // Google Calendar Events endpoint
 app.get('/api/calendar/events', async (req, res) => {
-  console.log('=== DEBUG: Calendar events endpoint called ===');
-  console.log('oAuth2Client exists:', !!oAuth2Client);
-  console.log('storedTokens exists:', !!storedTokens);
-  console.log('Request query:', req.query);
   
   if (!oAuth2Client) {
-    console.log('ERROR: oAuth2Client not configured');
     return res.status(500).json({
       success: false,
       error: 'Google authentication not configured'
