@@ -238,6 +238,14 @@ async function initDatabase() {
     
     console.log('Database initialized successfully');
     
+    // Force check contact_attachments table
+    try {
+      const checkTable = await pool.query("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'contact_attachments')");
+      console.log('contact_attachments table exists:', checkTable.rows[0].exists);
+    } catch (checkError) {
+      console.error('Error checking table existence:', checkError);
+    }
+    
     // Log current table schemas for debugging
     console.log('Starting schema logging...');
     try {
@@ -789,8 +797,11 @@ app.post('/api/contacts/:contactId/attachments', (req, res, next) => {
   }
 });
 
-// Download attachment
+// Download attachment  
 app.get('/api/contacts/:contactId/attachments/:attachmentId/download', async (req, res) => {
+  console.log('=== DOWNLOAD ENDPOINT HIT ===');
+  console.log('Params:', req.params);
+  
   const { contactId, attachmentId } = req.params;
   
   try {
@@ -9102,8 +9113,12 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('📱 Web interface: http://localhost:' + PORT);
   console.log('🔗 API endpoints:');
   console.log('   GET  /api/contacts - Get all contacts');
-  console.log(`   GET  /api/contacts/new - Get new contacts`);
-  console.log(`   POST /api/sync - Manual sync`);
+  console.log('   GET  /api/contacts/new - Get new contacts');
+  console.log('   POST /api/sync - Manual sync');
+  console.log('   GET  /api/contacts/:contactId/attachments - Get attachments');
+  console.log('   POST /api/contacts/:contactId/attachments - Upload attachment');
+  console.log('   GET  /api/contacts/:contactId/attachments/:attachmentId/download - Download attachment');
+  console.log('   DELETE /api/contacts/:contactId/attachments/:attachmentId - Delete attachment');
 });
 
 // Graceful shutdown
