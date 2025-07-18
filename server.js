@@ -248,6 +248,8 @@ async function initDatabase() {
     
     // Log current table schemas for debugging
     console.log('Starting schema logging...');
+    
+    // Check contacts table schema
     try {
       const contactsSchemaResult = await pool.query(`
         SELECT column_name, data_type 
@@ -256,7 +258,12 @@ async function initDatabase() {
         ORDER BY ordinal_position
       `);
       console.log('Current contacts table schema:', contactsSchemaResult.rows);
-      
+    } catch (contactsError) {
+      console.error('Error checking contacts schema:', contactsError);
+    }
+    
+    // Check events table schema
+    try {
       const eventsSchemaResult = await pool.query(`
         SELECT column_name, data_type 
         FROM information_schema.columns 
@@ -264,7 +271,13 @@ async function initDatabase() {
         ORDER BY ordinal_position
       `);
       console.log('Current events table schema:', eventsSchemaResult.rows);
-      
+    } catch (eventsError) {
+      console.error('Error checking events schema:', eventsError);
+    }
+    
+    // Check contact_attachments table schema
+    try {
+      console.log('Checking contact_attachments schema...');
       const attachmentsSchemaResult = await pool.query(`
         SELECT column_name, data_type 
         FROM information_schema.columns 
@@ -276,8 +289,8 @@ async function initDatabase() {
       if (attachmentsSchemaResult.rows.length === 0) {
         console.log('WARNING: contact_attachments table appears to be empty or not found!');
       }
-    } catch (schemaError) {
-      console.error('Error checking table schemas:', schemaError);
+    } catch (attachmentsError) {
+      console.error('Error checking contact_attachments schema:', attachmentsError);
     }
     
   } catch (error) {
@@ -354,6 +367,18 @@ app.use((error, req, res, next) => {
       success: false,
       error: errorMessage
     });
+  }
+  next();
+});
+
+// Global request logging middleware
+app.use((req, res, next) => {
+  if (req.path.includes('/attachments/')) {
+    console.log('=== ATTACHMENT REQUEST ===');
+    console.log('Method:', req.method);
+    console.log('Path:', req.path);
+    console.log('Params:', req.params);
+    console.log('Query:', req.query);
   }
   next();
 });
