@@ -7086,9 +7086,9 @@ app.get('/', (req, res) => {
           attachmentsList.innerHTML = attachments.map(attachment => 
             '<div class="attachment-item">' +
               '<div class="attachment-info">' +
-                '<div class="attachment-name">' + safeOnclick(attachment.display_name) + '</div>' +
+                '<div class="attachment-name">' + attachment.display_name + '</div>' +
                 '<div class="attachment-details">' +
-                  safeOnclick(attachment.original_filename) + ' • ' + formatFileSize(attachment.file_size) + ' • ' + formatDate(attachment.uploaded_at) +
+                  attachment.original_filename + ' • ' + formatFileSize(attachment.file_size) + ' • ' + formatDate(attachment.uploaded_at) +
                 '</div>' +
               '</div>' +
               '<div class="attachment-actions">' +
