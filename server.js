@@ -311,6 +311,44 @@ async function initDatabase() {
     `);
     console.log('monthly_billing table created successfully');
     
+    // Create projects table
+    console.log('Creating projects table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id SERIAL PRIMARY KEY,
+        contact_id INTEGER REFERENCES contacts(id),
+        project_name VARCHAR(255) NOT NULL,
+        description TEXT,
+        total_amount DECIMAL(10,2),
+        currency VARCHAR(10) DEFAULT 'CLP',
+        project_status VARCHAR(20) DEFAULT 'active',
+        start_date DATE,
+        estimated_end_date DATE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('projects table created successfully');
+    
+    // Create project_payments table
+    console.log('Creating project_payments table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_payments (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER REFERENCES projects(id),
+        amount DECIMAL(10,2),
+        currency VARCHAR(10) DEFAULT 'CLP',
+        payment_date DATE,
+        payment_month INTEGER,
+        payment_year INTEGER,
+        payment_status VARCHAR(20) DEFAULT 'pending',
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('project_payments table created successfully');
+    
     // Migrate existing financial data to new structure
     console.log('Migrating existing financial data...');
     await migrateFinancialData();
@@ -1354,6 +1392,325 @@ app.get('/api/contracts/:contactId', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch contract data'
+    });
+  }
+});
+
+// PROJECT MANAGEMENT ENDPOINTS
+
+// Get all projects
+app.get('/api/projects', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        p.*,
+        c.name as contact_name,
+        c.email as contact_email,
+        c.company,
+        COALESCE(SUM(pp.amount), 0) as total_paid,
+        COUNT(pp.id) as payment_count
+      FROM projects p
+      INNER JOIN contacts c ON p.contact_id = c.id
+      LEFT JOIN project_payments pp ON p.id = pp.project_id AND pp.payment_status = 'received'
+      GROUP BY p.id, c.name, c.email, c.company
+      ORDER BY p.created_at DESC
+    `);
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching projects:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch projects'
+    });
+  }
+});
+
+// Get projects for a specific month
+app.get('/api/projects/:year/:month', async (req, res) => {
+  const { year, month } = req.params;
+  
+  try {
+    const result = await pool.query(`
+      SELECT 
+        p.*,
+        c.name as contact_name,
+        c.email as contact_email,
+        c.company,
+        pp.amount as payment_amount,
+        pp.payment_date,
+        pp.payment_status,
+        pp.notes as payment_notes
+      FROM projects p
+      INNER JOIN contacts c ON p.contact_id = c.id
+      LEFT JOIN project_payments pp ON p.id = pp.project_id 
+        AND pp.payment_year = $1 AND pp.payment_month = $2
+      WHERE pp.id IS NOT NULL OR p.created_at >= DATE_TRUNC('month', TO_DATE($1 || '-' || $2 || '-01', 'YYYY-MM-DD'))
+      ORDER BY p.created_at DESC
+    `, [year, month]);
+    
+    res.json({
+      success: true,
+      data: result.rows,
+      year: parseInt(year),
+      month: parseInt(month)
+    });
+  } catch (error) {
+    console.error('Error fetching monthly projects:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch monthly projects'
+    });
+  }
+});
+
+// Create new project
+app.post('/api/projects', async (req, res) => {
+  const { 
+    contact_id, 
+    project_name, 
+    description, 
+    total_amount, 
+    currency,
+    project_status,
+    start_date,
+    estimated_end_date
+  } = req.body;
+  
+  try {
+    const result = await pool.query(`
+      INSERT INTO projects (
+        contact_id, project_name, description, total_amount, 
+        currency, project_status, start_date, estimated_end_date
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *
+    `, [
+      contact_id, project_name, description, total_amount,
+      currency || 'CLP', project_status || 'active',
+      start_date, estimated_end_date
+    ]);
+    
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error creating project:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create project'
+    });
+  }
+});
+
+// Update project
+app.put('/api/projects/:id', async (req, res) => {
+  const { id } = req.params;
+  const { 
+    project_name, 
+    description, 
+    total_amount, 
+    currency,
+    project_status,
+    start_date,
+    estimated_end_date
+  } = req.body;
+  
+  try {
+    const result = await pool.query(`
+      UPDATE projects 
+      SET project_name = $1, description = $2, total_amount = $3, 
+          currency = $4, project_status = $5, start_date = $6, 
+          estimated_end_date = $7, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $8
+      RETURNING *
+    `, [
+      project_name, description, total_amount, currency,
+      project_status, start_date, estimated_end_date, id
+    ]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating project:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update project'
+    });
+  }
+});
+
+// Delete project
+app.delete('/api/projects/:id', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Delete associated payments first
+    await pool.query('DELETE FROM project_payments WHERE project_id = $1', [id]);
+    
+    // Delete project
+    const result = await pool.query('DELETE FROM projects WHERE id = $1 RETURNING *', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Project not found'
+      });
+    }
+    
+    res.json({
+      success: true,
+      message: 'Project deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting project:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete project'
+    });
+  }
+});
+
+// Get project payments
+app.get('/api/projects/:id/payments', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const result = await pool.query(`
+      SELECT * FROM project_payments 
+      WHERE project_id = $1 
+      ORDER BY payment_date DESC
+    `, [id]);
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching project payments:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch project payments'
+    });
+  }
+});
+
+// Add project payment
+app.post('/api/projects/:id/payments', async (req, res) => {
+  const { id } = req.params;
+  const { 
+    amount, 
+    currency, 
+    payment_date, 
+    payment_status, 
+    notes 
+  } = req.body;
+  
+  try {
+    const paymentDateObj = new Date(payment_date);
+    const payment_year = paymentDateObj.getFullYear();
+    const payment_month = paymentDateObj.getMonth() + 1;
+    
+    const result = await pool.query(`
+      INSERT INTO project_payments (
+        project_id, amount, currency, payment_date, 
+        payment_month, payment_year, payment_status, notes
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *
+    `, [
+      id, amount, currency || 'CLP', payment_date,
+      payment_month, payment_year, payment_status || 'pending', notes
+    ]);
+    
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error adding project payment:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to add project payment'
+    });
+  }
+});
+
+// Get financial summary
+app.get('/api/financial-summary/:year/:month', async (req, res) => {
+  const { year, month } = req.params;
+  
+  try {
+    // Get monthly billing totals
+    const monthlyBillingResult = await pool.query(`
+      SELECT 
+        COALESCE(SUM(
+          CASE 
+            WHEN COALESCE(mb.currency, cc.base_currency) = 'UF' THEN COALESCE(mb.adjusted_price, cc.base_monthly_price) * 37000
+            ELSE COALESCE(mb.adjusted_price, cc.base_monthly_price)
+          END
+        ), 0) as monthly_total,
+        COUNT(cc.id) as active_clients
+      FROM client_contracts cc
+      LEFT JOIN monthly_billing mb ON cc.contact_id = mb.contact_id 
+        AND mb.year = $1 AND mb.month = $2
+      WHERE cc.is_active = true
+    `, [year, month]);
+    
+    // Get project payments for the month
+    const projectPaymentsResult = await pool.query(`
+      SELECT 
+        COALESCE(SUM(
+          CASE 
+            WHEN pp.currency = 'UF' THEN pp.amount * 37000
+            ELSE pp.amount
+          END
+        ), 0) as projects_total,
+        COUNT(DISTINCT pp.project_id) as active_projects,
+        COUNT(pp.id) as total_payments
+      FROM project_payments pp
+      WHERE pp.payment_year = $1 AND pp.payment_month = $2
+        AND pp.payment_status IN ('received', 'pending')
+    `, [year, month]);
+    
+    const monthlyData = monthlyBillingResult.rows[0];
+    const projectData = projectPaymentsResult.rows[0];
+    
+    const totalIncome = parseFloat(monthlyData.monthly_total) + parseFloat(projectData.projects_total);
+    
+    res.json({
+      success: true,
+      data: {
+        monthly_billing: {
+          total: parseFloat(monthlyData.monthly_total),
+          clients: parseInt(monthlyData.active_clients)
+        },
+        projects: {
+          total: parseFloat(projectData.projects_total),
+          projects: parseInt(projectData.active_projects),
+          payments: parseInt(projectData.total_payments)
+        },
+        total_income: totalIncome,
+        year: parseInt(year),
+        month: parseInt(month)
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching financial summary:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch financial summary'
     });
   }
 });
@@ -5611,6 +5968,46 @@ app.get('/', (req, res) => {
           margin: 0 auto;
         }
         
+        /* Finance Sub-tabs */
+        .finance-sub-tabs {
+          display: flex;
+          gap: 0;
+          margin-bottom: 20px;
+          border-bottom: 2px solid var(--border-color);
+        }
+        
+        .finance-sub-tab {
+          padding: 12px 24px;
+          background: transparent;
+          border: none;
+          color: var(--text-secondary);
+          cursor: pointer;
+          font-size: 1rem;
+          font-weight: 500;
+          transition: all 0.3s ease;
+          border-bottom: 2px solid transparent;
+          position: relative;
+        }
+        
+        .finance-sub-tab:hover {
+          color: var(--primary-color);
+          background: var(--card-bg);
+        }
+        
+        .finance-sub-tab.active {
+          color: var(--primary-color);
+          border-bottom-color: var(--primary-color);
+          font-weight: 600;
+        }
+        
+        .finance-sub-content {
+          display: none;
+        }
+        
+        .finance-sub-content.active {
+          display: block;
+        }
+        
         .finance-header {
           margin-bottom: 30px;
         }
@@ -6114,50 +6511,165 @@ app.get('/', (req, res) => {
             
             <div id="finanzas-tab" class="tab-content" style="display: none;">
               <div class="finance-container">
-                <div class="finance-header">
-                  <div class="finance-title-nav">
-                    <h3>Flujo de Caja Mensual</h3>
-                    <div class="month-navigation">
-                      <button class="nav-btn" id="prevMonth" onclick="navigateMonth(-1)">‹</button>
-                      <div class="current-month" id="currentMonthDisplay">Julio 2025</div>
-                      <button class="nav-btn" id="nextMonth" onclick="navigateMonth(1)">›</button>
+                <!-- Sub-tabs Navigation -->
+                <div class="finance-sub-tabs">
+                  <button class="finance-sub-tab active" onclick="switchFinanceSubTab('resumen')">Resumen General</button>
+                  <button class="finance-sub-tab" onclick="switchFinanceSubTab('flujo')">Flujo Mensual</button>
+                  <button class="finance-sub-tab" onclick="switchFinanceSubTab('proyectos')">Proyectos</button>
+                </div>
+                
+                <!-- Resumen General Tab -->
+                <div id="resumen-content" class="finance-sub-content active">
+                  <div class="finance-header">
+                    <div class="finance-title-nav">
+                      <h3>Resumen General</h3>
+                      <div class="month-navigation">
+                        <button class="nav-btn" id="prevMonthResumen" onclick="navigateMonthResumen(-1)">‹</button>
+                        <div class="current-month" id="currentMonthDisplayResumen">Julio 2025</div>
+                        <button class="nav-btn" id="nextMonthResumen" onclick="navigateMonthResumen(1)">›</button>
+                      </div>
+                    </div>
+                    <div class="finance-summary">
+                      <div class="summary-card">
+                        <div class="summary-title">Flujo Mensual CLP</div>
+                        <div class="summary-amount" id="totalCLPResumen">$ 0</div>
+                      </div>
+                      <div class="summary-card">
+                        <div class="summary-title">Flujo Mensual UF</div>
+                        <div class="summary-amount" id="totalUFResumen">0 UF</div>
+                      </div>
+                      <div class="summary-card">
+                        <div class="summary-title">Proyectos CLP</div>
+                        <div class="summary-amount" id="totalProjectsCLP">$ 0</div>
+                      </div>
+                      <div class="summary-card">
+                        <div class="summary-title">Total Mensual</div>
+                        <div class="summary-amount" id="totalMonthlyIncome">$ 0</div>
+                      </div>
                     </div>
                   </div>
-                  <div class="finance-summary">
-                    <div class="summary-card">
-                      <div class="summary-title">Total Mensual CLP</div>
-                      <div class="summary-amount" id="totalCLP">$ 0</div>
-                    </div>
-                    <div class="summary-card">
-                      <div class="summary-title">Total Mensual UF</div>
-                      <div class="summary-amount" id="totalUF">0 UF</div>
-                    </div>
-                    <div class="summary-card">
-                      <div class="summary-title">UF Actual</div>
-                      <div class="summary-amount" id="currentUF">Cargando...</div>
-                    </div>
+                  
+                  <div class="finance-table-container">
+                    <h4 style="color: var(--text-primary); margin-bottom: 15px;">Ingresos del Mes</h4>
+                    <table class="finance-table">
+                      <thead>
+                        <tr>
+                          <th>Tipo</th>
+                          <th>Descripción</th>
+                          <th>Monto</th>
+                          <th>Moneda</th>
+                          <th>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody id="resumenTableBody">
+                        <tr>
+                          <td colspan="5" class="no-data">Cargando datos financieros...</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
                 </div>
                 
-                <div class="finance-table-container">
-                  <table class="finance-table">
-                    <thead>
-                      <tr>
-                        <th>Empresa</th>
-                        <th>Email</th>
-                        <th>Precio Base</th>
-                        <th>Ajuste Mensual</th>
-                        <th>Precio Final</th>
-                        <th>Moneda</th>
-                        <th>Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody id="financeTableBody">
-                      <tr>
-                        <td colspan="7" class="no-data">Cargando datos financieros...</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                <!-- Flujo Mensual Tab -->
+                <div id="flujo-content" class="finance-sub-content">
+                  <div class="finance-header">
+                    <div class="finance-title-nav">
+                      <h3>Flujo de Caja Mensual</h3>
+                      <div class="month-navigation">
+                        <button class="nav-btn" id="prevMonth" onclick="navigateMonth(-1)">‹</button>
+                        <div class="current-month" id="currentMonthDisplay">Julio 2025</div>
+                        <button class="nav-btn" id="nextMonth" onclick="navigateMonth(1)">›</button>
+                      </div>
+                    </div>
+                    <div class="finance-summary">
+                      <div class="summary-card">
+                        <div class="summary-title">Total Mensual CLP</div>
+                        <div class="summary-amount" id="totalCLP">$ 0</div>
+                      </div>
+                      <div class="summary-card">
+                        <div class="summary-title">Total Mensual UF</div>
+                        <div class="summary-amount" id="totalUF">0 UF</div>
+                      </div>
+                      <div class="summary-card">
+                        <div class="summary-title">UF Actual</div>
+                        <div class="summary-amount" id="currentUF">Cargando...</div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="finance-table-container">
+                    <table class="finance-table">
+                      <thead>
+                        <tr>
+                          <th>Empresa</th>
+                          <th>Email</th>
+                          <th>Precio Base</th>
+                          <th>Ajuste Mensual</th>
+                          <th>Precio Final</th>
+                          <th>Moneda</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody id="financeTableBody">
+                        <tr>
+                          <td colspan="7" class="no-data">Cargando datos financieros...</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                
+                <!-- Proyectos Tab -->
+                <div id="proyectos-content" class="finance-sub-content">
+                  <div class="finance-header">
+                    <div class="finance-title-nav">
+                      <h3>Gestión de Proyectos</h3>
+                      <div class="month-navigation">
+                        <button class="nav-btn" id="prevMonthProyectos" onclick="navigateMonthProyectos(-1)">‹</button>
+                        <div class="current-month" id="currentMonthDisplayProyectos">Julio 2025</div>
+                        <button class="nav-btn" id="nextMonthProyectos" onclick="navigateMonthProyectos(1)">›</button>
+                      </div>
+                    </div>
+                    <div class="finance-summary">
+                      <div class="summary-card">
+                        <div class="summary-title">Proyectos Activos</div>
+                        <div class="summary-amount" id="activeProjectsCount">0</div>
+                      </div>
+                      <div class="summary-card">
+                        <div class="summary-title">Ingresos del Mes</div>
+                        <div class="summary-amount" id="monthlyProjectIncome">$ 0</div>
+                      </div>
+                      <div class="summary-card">
+                        <div class="summary-title">Pendientes</div>
+                        <div class="summary-amount" id="pendingProjectPayments">$ 0</div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="finance-table-container">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                      <h4 style="color: var(--text-primary); margin: 0;">Proyectos y Pagos</h4>
+                      <button class="btn btn-primary" onclick="showCreateProjectModal()">Nuevo Proyecto</button>
+                    </div>
+                    <table class="finance-table">
+                      <thead>
+                        <tr>
+                          <th>Proyecto</th>
+                          <th>Cliente</th>
+                          <th>Monto Total</th>
+                          <th>Pagado</th>
+                          <th>Pendiente</th>
+                          <th>Estado</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody id="projectsTableBody">
+                        <tr>
+                          <td colspan="7" class="no-data">Cargando proyectos...</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             </div>
@@ -6690,7 +7202,8 @@ app.get('/', (req, res) => {
             } else if (tabId === 'funnel') {
               loadFunnelData();
             } else if (tabId === 'finanzas') {
-              loadFinanceData();
+              // Load resumen data by default
+              loadResumenData();
             }
           });
         });
@@ -10006,6 +10519,213 @@ app.get('/', (req, res) => {
               console.error('Error loading contact:', error);
               showStatus('Error cargando contacto', 'error');
             });
+        }
+
+        // Finance Sub-tabs Functions
+        let currentActiveFinanceTab = 'resumen';
+        let currentResumenYear = new Date().getFullYear();
+        let currentResumenMonth = new Date().getMonth() + 1;
+        let currentProyectosYear = new Date().getFullYear();
+        let currentProyectosMonth = new Date().getMonth() + 1;
+
+        function switchFinanceSubTab(tabName) {
+          // Update active tab button
+          document.querySelectorAll('.finance-sub-tab').forEach(tab => {
+            tab.classList.remove('active');
+          });
+          document.querySelector(`[onclick="switchFinanceSubTab('${tabName}')"]`).classList.add('active');
+          
+          // Update active content
+          document.querySelectorAll('.finance-sub-content').forEach(content => {
+            content.classList.remove('active');
+          });
+          document.getElementById(`${tabName}-content`).classList.add('active');
+          
+          currentActiveFinanceTab = tabName;
+          
+          // Load appropriate data based on tab
+          if (tabName === 'resumen') {
+            loadResumenData();
+          } else if (tabName === 'flujo') {
+            loadFinanceData();
+          } else if (tabName === 'proyectos') {
+            loadProyectosData();
+          }
+        }
+
+        function navigateMonthResumen(direction) {
+          currentResumenMonth += direction;
+          
+          if (currentResumenMonth > 12) {
+            currentResumenMonth = 1;
+            currentResumenYear++;
+          } else if (currentResumenMonth < 1) {
+            currentResumenMonth = 12;
+            currentResumenYear--;
+          }
+          
+          updateMonthDisplayResumen();
+          loadResumenData();
+        }
+
+        function navigateMonthProyectos(direction) {
+          currentProyectosMonth += direction;
+          
+          if (currentProyectosMonth > 12) {
+            currentProyectosMonth = 1;
+            currentProyectosYear++;
+          } else if (currentProyectosMonth < 1) {
+            currentProyectosMonth = 12;
+            currentProyectosYear--;
+          }
+          
+          updateMonthDisplayProyectos();
+          loadProyectosData();
+        }
+
+        function updateMonthDisplayResumen() {
+          const monthNames = [
+            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+          ];
+          
+          const monthDisplay = monthNames[currentResumenMonth - 1] + ' ' + currentResumenYear;
+          document.getElementById('currentMonthDisplayResumen').textContent = monthDisplay;
+        }
+
+        function updateMonthDisplayProyectos() {
+          const monthNames = [
+            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+          ];
+          
+          const monthDisplay = monthNames[currentProyectosMonth - 1] + ' ' + currentProyectosYear;
+          document.getElementById('currentMonthDisplayProyectos').textContent = monthDisplay;
+        }
+
+        async function loadResumenData() {
+          try {
+            updateMonthDisplayResumen();
+            
+            // Load financial summary data
+            const response = await fetch(`/api/financial-summary/${currentResumenYear}/${currentResumenMonth}`);
+            const data = await response.json();
+            
+            if (data.success) {
+              // Update summary cards
+              document.getElementById('totalCLPResumen').textContent = '$ ' + data.data.monthlyBilling.totalCLP.toLocaleString('es-CL');
+              document.getElementById('totalUFResumen').textContent = data.data.monthlyBilling.totalUF.toLocaleString('es-CL', { maximumFractionDigits: 2 }) + ' UF';
+              document.getElementById('totalProjectsCLP').textContent = '$ ' + data.data.projects.totalCLP.toLocaleString('es-CL');
+              document.getElementById('totalMonthlyIncome').textContent = '$ ' + (data.data.monthlyBilling.totalCLP + data.data.projects.totalCLP).toLocaleString('es-CL');
+              
+              // Load resumen table
+              const tbody = document.getElementById('resumenTableBody');
+              tbody.innerHTML = '';
+              
+              // Add monthly billing entries
+              data.data.monthlyBilling.clients.forEach(client => {
+                const row = document.createElement('tr');
+                let finalPrice = 0;
+                
+                if (client.final_monthly_price) {
+                  if (client.final_currency === 'UF') {
+                    finalPrice = client.final_monthly_price * currentUFValue;
+                  } else {
+                    finalPrice = client.final_monthly_price;
+                  }
+                }
+                
+                row.innerHTML = `
+                  <td>Flujo Mensual</td>
+                  <td>${client.company || client.name || client.email}</td>
+                  <td>$ ${finalPrice.toLocaleString('es-CL')}</td>
+                  <td>${client.final_currency || 'CLP'}</td>
+                  <td>Activo</td>
+                `;
+                tbody.appendChild(row);
+              });
+              
+              // Add project entries
+              data.data.projects.payments.forEach(payment => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                  <td>Proyecto</td>
+                  <td>${payment.project_name}</td>
+                  <td>$ ${payment.amount.toLocaleString('es-CL')}</td>
+                  <td>${payment.currency}</td>
+                  <td>${payment.payment_status === 'pending' ? 'Pendiente' : 'Pagado'}</td>
+                `;
+                tbody.appendChild(row);
+              });
+              
+              if (data.data.monthlyBilling.clients.length === 0 && data.data.projects.payments.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="no-data">No hay datos para este mes</td></tr>';
+              }
+            }
+          } catch (error) {
+            console.error('Error loading resumen data:', error);
+            document.getElementById('resumenTableBody').innerHTML = '<tr><td colspan="5" class="no-data">Error cargando datos</td></tr>';
+          }
+        }
+
+        async function loadProyectosData() {
+          try {
+            updateMonthDisplayProyectos();
+            
+            // Load projects data
+            const response = await fetch(`/api/projects/${currentProyectosYear}/${currentProyectosMonth}`);
+            const data = await response.json();
+            
+            if (data.success) {
+              // Update summary cards
+              document.getElementById('activeProjectsCount').textContent = data.data.activeProjects;
+              document.getElementById('monthlyProjectIncome').textContent = '$ ' + data.data.monthlyIncome.toLocaleString('es-CL');
+              document.getElementById('pendingProjectPayments').textContent = '$ ' + data.data.pendingPayments.toLocaleString('es-CL');
+              
+              // Load projects table
+              const tbody = document.getElementById('projectsTableBody');
+              tbody.innerHTML = '';
+              
+              if (data.data.projects.length > 0) {
+                data.data.projects.forEach(project => {
+                  const row = document.createElement('tr');
+                  row.innerHTML = `
+                    <td>${project.project_name}</td>
+                    <td>${project.client_name || project.client_email}</td>
+                    <td>$ ${project.total_amount.toLocaleString('es-CL')}</td>
+                    <td>$ ${project.paid_amount.toLocaleString('es-CL')}</td>
+                    <td>$ ${project.pending_amount.toLocaleString('es-CL')}</td>
+                    <td>${project.project_status === 'active' ? 'Activo' : 'Completado'}</td>
+                    <td>
+                      <button class="btn btn-sm btn-secondary" onclick="viewProjectDetails(${project.id})">Ver</button>
+                      <button class="btn btn-sm btn-primary" onclick="addProjectPayment(${project.id})">Pago</button>
+                    </td>
+                  `;
+                  tbody.appendChild(row);
+                });
+              } else {
+                tbody.innerHTML = '<tr><td colspan="7" class="no-data">No hay proyectos para este mes</td></tr>';
+              }
+            }
+          } catch (error) {
+            console.error('Error loading proyectos data:', error);
+            document.getElementById('projectsTableBody').innerHTML = '<tr><td colspan="7" class="no-data">Error cargando proyectos</td></tr>';
+          }
+        }
+
+        function showCreateProjectModal() {
+          // TODO: Implement create project modal
+          alert('Funcionalidad de crear proyecto próximamente');
+        }
+
+        function viewProjectDetails(projectId) {
+          // TODO: Implement project details view
+          alert('Ver detalles del proyecto: ' + projectId);
+        }
+
+        function addProjectPayment(projectId) {
+          // TODO: Implement add payment modal
+          alert('Agregar pago al proyecto: ' + projectId);
         }
 
         // Override the original loadContacts function to use the new filtering version
