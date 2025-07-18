@@ -1697,7 +1697,7 @@ app.get('/api/financial-summary/:year/:month', async (req, res) => {
         c.phone,
         c.industry,
         c.is_active_client,
-        COALESCE(mb.adjusted_price, cc.base_monthly_price) as final_monthly_price,
+        COALESCE(mb.adjusted_price, cc.base_monthly_price) as final_price,
         COALESCE(mb.currency, cc.base_currency, 'CLP') as final_currency,
         cc.base_monthly_price,
         cc.base_currency
@@ -1713,12 +1713,12 @@ app.get('/api/financial-summary/:year/:month', async (req, res) => {
     const monthlyClients = monthlyBillingResult.rows;
     
     monthlyClients.forEach(client => {
-      if (client.final_monthly_price) {
+      if (client.final_price) {
         if (client.final_currency === 'UF') {
-          monthlyTotalUF += parseFloat(client.final_monthly_price);
-          monthlyTotalCLP += parseFloat(client.final_monthly_price) * currentUFValue;
+          monthlyTotalUF += parseFloat(client.final_price);
+          monthlyTotalCLP += parseFloat(client.final_price) * currentUFValue;
         } else {
-          monthlyTotalCLP += parseFloat(client.final_monthly_price);
+          monthlyTotalCLP += parseFloat(client.final_price);
         }
       }
     });
@@ -10686,11 +10686,11 @@ app.get('/', (req, res) => {
                 const row = document.createElement('tr');
                 let finalPrice = 0;
                 
-                if (client.final_monthly_price) {
+                if (client.final_price) {
                   if (client.final_currency === 'UF') {
-                    finalPrice = client.final_monthly_price * currentUFValue;
+                    finalPrice = client.final_price * currentUFValue;
                   } else {
-                    finalPrice = client.final_monthly_price;
+                    finalPrice = client.final_price;
                   }
                 }
                 
