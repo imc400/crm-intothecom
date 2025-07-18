@@ -702,6 +702,18 @@ app.post('/api/contacts/:contactId/attachments', upload.single('file'), async (r
     
   } catch (error) {
     console.error('Error uploading attachment:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      contactId: contactId,
+      displayName: displayName,
+      file: req.file ? {
+        filename: req.file.filename,
+        originalname: req.file.originalname,
+        size: req.file.size,
+        mimetype: req.file.mimetype
+      } : 'No file'
+    });
     
     // Delete uploaded file if database operation failed
     if (req.file) {
@@ -712,7 +724,7 @@ app.post('/api/contacts/:contactId/attachments', upload.single('file'), async (r
     
     res.status(500).json({
       success: false,
-      error: 'Failed to upload attachment'
+      error: 'Failed to upload attachment: ' + error.message
     });
   }
 });
@@ -7059,6 +7071,16 @@ app.get('/', (req, res) => {
               body: formData
             });
             
+            console.log('Upload response status:', response.status);
+            console.log('Upload response headers:', response.headers);
+            
+            if (!response.ok) {
+              const errorText = await response.text();
+              console.error('Server error response:', errorText);
+              alert('Error del servidor: ' + response.status + ' - ' + errorText);
+              return;
+            }
+            
             const result = await response.json();
             
             if (result.success) {
@@ -7073,7 +7095,7 @@ app.get('/', (req, res) => {
             }
           } catch (error) {
             console.error('Error uploading attachment:', error);
-            alert('Error de conexión al subir archivo');
+            alert('Error de conexión al subir archivo: ' + error.message);
           }
         }
         
