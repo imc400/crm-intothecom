@@ -1344,6 +1344,19 @@ app.get('/api/auth/google/callback', async (req, res) => {
   }
 });
 
+// DEBUG: Temporary endpoint to check OAuth configuration
+app.get('/api/auth/debug', (req, res) => {
+  res.json({
+    environment: process.env.NODE_ENV,
+    hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
+    hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+    googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || 'https://crm-intothecom-production.up.railway.app/api/auth/google/callback',
+    hasOAuthClient: !!oAuth2Client,
+    hasStoredTokens: !!storedTokens,
+    storedTokensKeys: storedTokens ? Object.keys(storedTokens) : null
+  });
+});
+
 // Check authentication status
 app.get('/api/auth/status', async (req, res) => {
   try {
