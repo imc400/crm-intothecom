@@ -6680,6 +6680,378 @@ app.get('/', (req, res) => {
           font-size: 0.8rem;
         }
         
+        
+        /* ========================
+           CHAT SYSTEM STYLES
+        ======================== */
+        
+        .chat-container {
+          display: flex;
+          height: calc(100vh - 120px);
+          background: var(--bg-primary);
+          border-radius: 12px;
+          overflow: hidden;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+        }
+        
+        /* Chat Sidebar */
+        .chat-sidebar {
+          width: 300px;
+          background: #2c2d30;
+          color: #dcddde;
+          display: flex;
+          flex-direction: column;
+          border-right: 1px solid #40414f;
+        }
+        
+        .chat-sidebar-header {
+          padding: 20px;
+          border-bottom: 1px solid #40414f;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .chat-sidebar-header h3 {
+          color: #ffffff;
+          margin: 0;
+          font-size: 1.2rem;
+          font-weight: 600;
+        }
+        
+        .chat-channels {
+          flex: 1;
+          padding: 16px;
+          overflow-y: auto;
+        }
+        
+        .channel-section {
+          margin-bottom: 24px;
+        }
+        
+        .channel-section h4 {
+          color: #96989d;
+          font-size: 0.75rem;
+          text-transform: uppercase;
+          font-weight: 600;
+          letter-spacing: 0.5px;
+          margin: 0 0 8px 0;
+          padding: 0 8px;
+        }
+        
+        .channel-item {
+          display: flex;
+          align-items: center;
+          padding: 8px 12px;
+          border-radius: 6px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+          margin-bottom: 2px;
+        }
+        
+        .channel-item:hover {
+          background: #35373c;
+        }
+        
+        .channel-item.active {
+          background: var(--primary-color);
+          color: white;
+        }
+        
+        .channel-hash {
+          margin-right: 8px;
+          color: #96989d;
+          font-weight: bold;
+        }
+        
+        .channel-item.active .channel-hash {
+          color: rgba(255, 255, 255, 0.8);
+        }
+        
+        .channel-name {
+          font-weight: 500;
+          font-size: 0.95rem;
+        }
+        
+        .chat-user-info {
+          padding: 16px;
+          border-top: 1px solid #40414f;
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        
+        .user-avatar {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          background: var(--primary-color);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 16px;
+        }
+        
+        .user-details {
+          flex: 1;
+        }
+        
+        .user-name {
+          font-weight: 600;
+          font-size: 0.9rem;
+          color: #ffffff;
+          margin-bottom: 2px;
+        }
+        
+        .user-status {
+          font-size: 0.75rem;
+          color: #96989d;
+        }
+        
+        /* Chat Main Area */
+        .chat-main {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          background: #ffffff;
+        }
+        
+        .chat-header {
+          padding: 16px 24px;
+          border-bottom: 1px solid #e5e7eb;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          background: #ffffff;
+        }
+        
+        .channel-info h3 {
+          margin: 0 0 4px 0;
+          color: var(--text-primary);
+          font-size: 1.25rem;
+          font-weight: 600;
+        }
+        
+        .channel-info span {
+          color: var(--text-secondary);
+          font-size: 0.9rem;
+        }
+        
+        .chat-actions {
+          display: flex;
+          gap: 8px;
+        }
+        
+        .chat-messages {
+          flex: 1;
+          padding: 16px 24px;
+          overflow-y: auto;
+          background: #ffffff;
+        }
+        
+        .message-day-separator {
+          text-align: center;
+          margin: 24px 0;
+          position: relative;
+        }
+        
+        .message-day-separator::before {
+          content: '';
+          position: absolute;
+          top: 50%;
+          left: 0;
+          right: 0;
+          height: 1px;
+          background: #e5e7eb;
+          z-index: 1;
+        }
+        
+        .message-day-separator span {
+          background: #ffffff;
+          padding: 8px 16px;
+          border: 1px solid #e5e7eb;
+          border-radius: 20px;
+          font-size: 0.8rem;
+          font-weight: 600;
+          color: var(--text-secondary);
+          position: relative;
+          z-index: 2;
+        }
+        
+        .chat-message {
+          display: flex;
+          margin-bottom: 16px;
+          padding: 8px 0;
+          transition: background 0.2s ease;
+        }
+        
+        .chat-message:hover {
+          background: rgba(0, 0, 0, 0.02);
+          border-radius: 8px;
+          margin: 0 -12px 16px -12px;
+          padding: 8px 12px;
+        }
+        
+        .message-avatar {
+          width: 40px;
+          height: 40px;
+          border-radius: 50%;
+          background: var(--primary-color);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 18px;
+          margin-right: 12px;
+          flex-shrink: 0;
+        }
+        
+        .message-content {
+          flex: 1;
+          min-width: 0;
+        }
+        
+        .message-header {
+          display: flex;
+          align-items: baseline;
+          margin-bottom: 4px;
+          gap: 8px;
+        }
+        
+        .message-author {
+          font-weight: 600;
+          color: var(--text-primary);
+          font-size: 0.95rem;
+        }
+        
+        .message-timestamp {
+          font-size: 0.75rem;
+          color: var(--text-secondary);
+        }
+        
+        .message-text {
+          color: var(--text-primary);
+          line-height: 1.5;
+          word-wrap: break-word;
+          font-size: 0.95rem;
+        }
+        
+        /* Chat Input */
+        .chat-input-container {
+          padding: 16px 24px;
+          border-top: 1px solid #e5e7eb;
+          background: #ffffff;
+        }
+        
+        .chat-input-wrapper {
+          max-width: 100%;
+        }
+        
+        .chat-input-area {
+          border: 1px solid #e5e7eb;
+          border-radius: 8px;
+          display: flex;
+          align-items: flex-end;
+          background: #ffffff;
+          transition: border-color 0.2s ease;
+        }
+        
+        .chat-input-area:focus-within {
+          border-color: var(--primary-color);
+          box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.1);
+        }
+        
+        .chat-input-area textarea {
+          flex: 1;
+          border: none;
+          outline: none;
+          padding: 12px 16px;
+          font-size: 0.95rem;
+          line-height: 1.4;
+          resize: none;
+          min-height: 40px;
+          max-height: 120px;
+          background: transparent;
+          font-family: inherit;
+        }
+        
+        .chat-input-area textarea::placeholder {
+          color: var(--text-secondary);
+        }
+        
+        .chat-input-actions {
+          display: flex;
+          padding: 8px 12px;
+          gap: 4px;
+        }
+        
+        .input-action-btn {
+          background: none;
+          border: none;
+          padding: 6px;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 16px;
+          transition: background 0.2s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        
+        .input-action-btn:hover {
+          background: rgba(0, 0, 0, 0.05);
+        }
+        
+        .input-action-btn:last-child {
+          color: var(--primary-color);
+          font-weight: bold;
+        }
+        
+        .input-action-btn:last-child:hover {
+          background: rgba(255, 107, 0, 0.1);
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+          .chat-sidebar {
+            width: 250px;
+          }
+          
+          .chat-header {
+            padding: 12px 16px;
+          }
+          
+          .chat-messages {
+            padding: 12px 16px;
+          }
+          
+          .chat-input-container {
+            padding: 12px 16px;
+          }
+        }
+        
+        @media (max-width: 600px) {
+          .chat-container {
+            height: calc(100vh - 100px);
+          }
+          
+          .chat-sidebar {
+            position: absolute;
+            left: -300px;
+            top: 0;
+            bottom: 0;
+            z-index: 1000;
+            transition: left 0.3s ease;
+          }
+          
+          .chat-sidebar.open {
+            left: 0;
+          }
+          
+          .chat-main {
+            width: 100%;
+          }
+        }
+        
       </style>
     </head>
     <body>
@@ -6998,6 +7370,86 @@ app.get('/', (req, res) => {
                         </tr>
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chat Tab -->
+          <div id="chat-tab" class="tab-content" style="display: none;">
+            <div class="chat-container">
+              <!-- Chat Sidebar -->
+              <div class="chat-sidebar">
+                <div class="chat-sidebar-header">
+                  <h3>IntoTheCom Chat</h3>
+                  <button class="btn btn-sm btn-primary" onclick="openCreateChannelModal()">+ Canal</button>
+                </div>
+                
+                <div class="chat-channels">
+                  <div class="channel-section">
+                    <h4>Canales</h4>
+                    <div id="channelsList">
+                      <!-- Channels populated by JavaScript -->
+                      <div class="channel-item active" data-channel-id="1">
+                        <span class="channel-hash">#</span>
+                        <span class="channel-name">general</span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="channel-section">
+                    <h4>Mensajes Directos</h4>
+                    <div id="directMessagesList">
+                      <!-- DMs populated by JavaScript -->
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="chat-user-info">
+                  <div class="user-avatar">👤</div>
+                  <div class="user-details">
+                    <div class="user-name" id="chatUserName">Usuario</div>
+                    <div class="user-status">🟢 En línea</div>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Chat Main Area -->
+              <div class="chat-main">
+                <div class="chat-header">
+                  <div class="channel-info">
+                    <h3 id="currentChannelName"># general</h3>
+                    <span id="currentChannelDescription">Canal general para toda la empresa</span>
+                  </div>
+                  <div class="chat-actions">
+                    <button class="btn btn-sm btn-outline">👥 <span id="channelMemberCount">0</span></button>
+                    <button class="btn btn-sm btn-outline" onclick="openChannelSettings()">⚙️</button>
+                  </div>
+                </div>
+                
+                <div class="chat-messages" id="chatMessages">
+                  <!-- Messages populated by JavaScript -->
+                  <div class="message-day-separator">
+                    <span>Hoy</span>
+                  </div>
+                </div>
+                
+                <div class="chat-input-container">
+                  <div class="chat-input-wrapper">
+                    <div class="chat-input-area">
+                      <textarea 
+                        id="chatMessageInput" 
+                        placeholder="Escribe un mensaje en #general..."
+                        rows="1"
+                        onkeydown="handleChatKeydown(event)"
+                        oninput="autoResizeTextarea(this)"></textarea>
+                      <div class="chat-input-actions">
+                        <button class="input-action-btn" onclick="openEmojiPicker()" title="Añadir emoji">😀</button>
+                        <button class="input-action-btn" onclick="openFileUpload()" title="Adjuntar archivo">📎</button>
+                        <button class="input-action-btn" onclick="sendChatMessage()" title="Enviar mensaje">➤</button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
