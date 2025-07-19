@@ -4465,6 +4465,15 @@ app.get('/', requireAuth, (req, res) => {
           overflow: hidden;
         }
         
+        /* Override tab-content for chat and profile to fix positioning */
+        #chat-tab.tab-content,
+        #profile-tab.tab-content {
+          padding: 20px;
+          overflow-y: auto;
+          height: calc(100vh - 120px);
+          min-height: 500px;
+        }
+        
         #funnel-tab {
           overflow: visible;
         }
@@ -7496,7 +7505,8 @@ app.get('/', requireAuth, (req, res) => {
           max-width: 800px;
           margin: 0 auto;
           padding: 20px;
-          min-height: calc(100vh - 380px);
+          min-height: calc(100vh - 260px);
+          height: auto;
         }
         
         .profile-main {
@@ -7637,8 +7647,8 @@ app.get('/', requireAuth, (req, res) => {
         
         .chat-container {
           display: flex;
-          height: calc(100vh - 380px);
-          min-height: 420px;
+          height: calc(100vh - 260px);
+          min-height: 400px;
           background: var(--bg-primary);
           border-radius: 12px;
           overflow: hidden;
@@ -7997,8 +8007,8 @@ app.get('/', requireAuth, (req, res) => {
         
         @media (max-width: 600px) {
           .chat-container {
-            height: calc(100vh - 330px);
-            min-height: 370px;
+            height: calc(100vh - 240px);
+            min-height: 350px;
           }
           
           .chat-sidebar {
