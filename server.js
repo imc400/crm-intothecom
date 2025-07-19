@@ -4430,12 +4430,6 @@ app.get('/', requireAuth, (req, res) => {
           border: 1px solid #68d391;
         }
         
-        .content-area {
-          background: #fff;
-          border-radius: 12px;
-          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-          min-height: 600px;
-        }
         
         .tab-content {
           background: var(--glass-bg);
@@ -8078,7 +8072,6 @@ app.get('/', requireAuth, (req, res) => {
             </div>
           </div>
           
-          <div class="content-area">
             <div id="calendar-tab" class="tab-content">
               <div class="calendar-container">
                 <div class="calendar-header">
@@ -8509,7 +8502,6 @@ app.get('/', requireAuth, (req, res) => {
               </div>
             </div>
           </div>
-        </div>
       </div>
 
       <!-- Contact CRM Modal -->
