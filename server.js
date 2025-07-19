@@ -2451,7 +2451,7 @@ app.get('/api/events/:eventId', requireAuth, async (req, res) => {
     console.log('Getting event details for user:', user.email);
     
     // Create user-specific OAuth client
-    const userOAuthClient = createUserOAuth2Client(user);
+    const userOAuthClient = await createUserOAuth2Client(user);
     
     if (!userOAuthClient) {
       return res.status(500).json({
@@ -2835,8 +2835,8 @@ const SCOPES = ['https://www.googleapis.com/auth/calendar'];
 let oAuth2Client = null;
 let storedTokens = null;
 
-// Create OAuth2 client for a specific user
-function createUserOAuth2Client(user = null) {
+// Create OAuth2 client for a specific user with auto-refresh capability
+async function createUserOAuth2Client(user = null) {
   let client;
   
   if (process.env.NODE_ENV === 'production') {
@@ -2871,15 +2871,41 @@ function createUserOAuth2Client(user = null) {
       token_type: 'Bearer',
       expiry_date: user.token_expiry ? new Date(user.token_expiry).getTime() : null
     });
+    
+    // Set up automatic token refresh
+    client.on('tokens', async (tokens) => {
+      console.log('🔄 Refreshing tokens for user:', user.email);
+      
+      try {
+        // Update tokens in database
+        await pool.query(`
+          UPDATE users 
+          SET access_token = $1, 
+              refresh_token = COALESCE($2, refresh_token),
+              token_expiry = $3,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $4
+        `, [
+          tokens.access_token,
+          tokens.refresh_token,
+          tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+          user.id
+        ]);
+        
+        console.log('✅ Tokens refreshed and saved for user:', user.email);
+      } catch (error) {
+        console.error('❌ Error saving refreshed tokens:', error.message);
+      }
+    });
   }
   
   return client;
 }
 
 // Legacy function for backward compatibility
-function initializeGoogleAuth() {
+async function initializeGoogleAuth() {
   // This now uses the per-user client system
-  oAuth2Client = createUserOAuth2Client();
+  oAuth2Client = await createUserOAuth2Client();
 }
 
 // Google Auth will be initialized in initDatabase() function
@@ -2890,7 +2916,7 @@ function initializeGoogleAuth() {
 
 // Start Google OAuth flow (per-user)
 app.get('/api/auth/google', (req, res) => {
-  const client = createUserOAuth2Client();
+  const client = await createUserOAuth2Client();
   
   if (!client) {
     return res.status(500).json({
@@ -2922,7 +2948,7 @@ app.get('/api/auth/google/callback', async (req, res) => {
     });
   }
   
-  const client = createUserOAuth2Client();
+  const client = await createUserOAuth2Client();
   
   if (!client) {
     return res.status(500).json({
@@ -3053,7 +3079,7 @@ app.get('/api/debug/user-tokens', requireAuth, async (req, res) => {
     });
     
     // Test OAuth client creation
-    const userOAuthClient = createUserOAuth2Client(user);
+    const userOAuthClient = await createUserOAuth2Client(user);
     console.log('OAuth client created:', !!userOAuthClient);
     
     if (userOAuthClient && user.access_token) {
@@ -3433,7 +3459,7 @@ app.get('/api/calendar/events', requireAuth, async (req, res) => {
     console.log('Loading calendar events for user:', user.email);
     
     // Create user-specific OAuth client
-    const userOAuthClient = createUserOAuth2Client(user);
+    const userOAuthClient = await createUserOAuth2Client(user);
     
     console.log('🔐 DEBUG AUTH - User tokens:', {
       hasAccessToken: !!user.access_token,
@@ -3552,90 +3578,40 @@ app.get('/api/calendar/events', requireAuth, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Calendar events error:', error);
+    console.error('Calendar events error for user', user.email + ':', error.message);
     
-    // Handle authentication errors with automatic token refresh
-    if (error.code === 401 || error.code === 403 || error.message.includes('No refresh token')) {
-      console.log('Authentication error, attempting to refresh tokens...');
+    // Handle specific authentication errors
+    if (error.message.includes('invalid_grant') || error.message.includes('Invalid Credentials')) {
+      console.log('🚫 Invalid grant error - tokens expired or invalid for user:', user.email);
       
-      try {
-        // Try to get fresh tokens from database
-        const tokenResult = await pool.query('SELECT tokens FROM google_tokens ORDER BY created_at DESC LIMIT 1');
-        if (tokenResult.rows.length > 0) {
-          const dbTokens = tokenResult.rows[0].tokens;
-          
-          // If we have a refresh token in database, try to refresh
-          if (dbTokens.refresh_token) {
-            console.log('🔄 Attempting automatic token refresh...');
-            console.log('🔐 Current tokens state:', {
-              hasAccessToken: !!dbTokens.access_token,
-              hasRefreshToken: !!dbTokens.refresh_token,
-              expiryDate: dbTokens.expiry_date,
-              isExpired: dbTokens.expiry_date ? Date.now() > dbTokens.expiry_date : 'unknown'
-            });
-            
-            oAuth2Client.setCredentials(dbTokens);
-            
-            // Force token refresh
-            const newTokens = await oAuth2Client.refreshAccessToken();
-            storedTokens = newTokens.credentials;
-            
-            console.log('🔐 New tokens received:', {
-              hasAccessToken: !!storedTokens.access_token,
-              hasRefreshToken: !!storedTokens.refresh_token,
-              expiryDate: storedTokens.expiry_date
-            });
-            
-            // Save refreshed tokens back to database
-            await pool.query(
-              'UPDATE google_tokens SET tokens = $1, updated_at = CURRENT_TIMESTAMP WHERE id = (SELECT id FROM google_tokens ORDER BY created_at DESC LIMIT 1)',
-              [JSON.stringify(storedTokens)]
-            );
-            
-            console.log('✅ Tokens refreshed automatically and saved to database');
-            
-            // Retry the original request
-            const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
-            const response = await calendar.events.list({
-              calendarId: 'primary',
-              timeMin: timeMin.toISOString(),
-              timeMax: timeMax.toISOString(),
-              singleEvents: true,
-              orderBy: 'startTime',
-            });
-            
-            const events = response.data.items || [];
-            return res.json({
-              success: true,
-              data: events,
-              view: view,
-              timeRange: {
-                start: timeMin.toISOString(),
-                end: timeMax.toISOString()
-              }
-            });
-          } else {
-            console.log('❌ No refresh token available in database');
-            console.log('🔐 Available tokens:', Object.keys(dbTokens));
-          }
-        }
-      } catch (refreshError) {
-        console.error('❌ Token refresh failed:', refreshError);
-      }
-      
-      // If refresh fails, clear tokens and require re-authentication
-      storedTokens = null;
-      if (oAuth2Client) {
-        oAuth2Client.setCredentials({});
-      }
+      // Clear the user's invalid tokens
+      await pool.query(`
+        UPDATE users 
+        SET access_token = NULL, refresh_token = NULL, token_expiry = NULL
+        WHERE id = $1
+      `, [user.id]);
       
       return res.status(401).json({
         success: false,
-        error: 'Google Calendar authentication expired. Please reconnect.',
-        requiresReauth: true
+        error: 'Authentication failed: invalid_grant',
+        needsLogin: true,
+        message: 'Your Google authentication has expired. Please log in again.'
       });
     }
     
+    // Handle other authentication errors
+    if (error.code === 401 || error.code === 403 || error.message.includes('authentication') || error.message.includes('credential')) {
+      console.log('❌ Authentication error for user:', user.email, '- Error:', error.message);
+      
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication failed: ' + error.message,
+        needsLogin: true,
+        message: 'Google authentication failed. Please log in again.'
+      });
+    }
+    
+    // Handle other errors
     res.status(500).json({
       success: false,
       error: 'Failed to fetch calendar events',
@@ -3672,7 +3648,7 @@ app.post('/api/events', requireAuth, async (req, res) => {
     console.log('Creating calendar event for user:', user.email);
     
     // Create user-specific OAuth client
-    const userOAuthClient = createUserOAuth2Client(user);
+    const userOAuthClient = await createUserOAuth2Client(user);
     
     if (!userOAuthClient) {
       return res.status(500).json({
