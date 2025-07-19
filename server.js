@@ -2987,167 +2987,6 @@ app.get('/api/auth/google', async (req, res) => {
 });
 
 // Google OAuth callback (per-user)
-app.get('/api/auth/google/callback', async (req, res) => {
-  const { code } = req.query;
-  
-  if (!code) {
-    return res.status(400).json({
-      success: false,
-      error: 'Authorization code not provided'
-    });
-  }
-  
-  const client = await createUserOAuth2Client();
-  
-  if (!client) {
-    return res.status(500).json({
-      success: false,
-      error: 'Google authentication not configured'
-    });
-  }
-  
-  try {
-    // Exchange authorization code for tokens
-    const { tokens } = await client.getToken(code);
-    
-    console.log('🔑 Tokens received from Google:', {
-      hasAccessToken: !!tokens.access_token,
-      hasRefreshToken: !!tokens.refresh_token,
-      tokenType: tokens.token_type,
-      expiryDate: tokens.expiry_date
-    });
-    
-    client.setCredentials(tokens);
-    
-    // Verify credentials were set correctly
-    const currentCredentials = client.credentials;
-    console.log('🔐 Client credentials verification:', {
-      hasAccessToken: !!currentCredentials.access_token,
-      hasRefreshToken: !!currentCredentials.refresh_token,
-      tokenType: currentCredentials.token_type,
-      accessTokenPrefix: currentCredentials.access_token ? 
-        currentCredentials.access_token.substring(0, 20) + '...' : 'MISSING'
-    });
-    
-    console.log('🔐 Client credentials set, attempting to get user profile...');
-    
-    // Ensure the client has valid credentials before making API calls
-    if (!client.credentials.access_token) {
-      console.error('❌ No access token available after setCredentials');
-      return res.status(500).json({
-        success: false,
-        error: 'Authentication failed - no access token'
-      });
-    }
-    
-    // Check if token needs refresh
-    const now = Date.now();
-    if (client.credentials.expiry_date && client.credentials.expiry_date <= now) {
-      console.log('🔄 Token expired, attempting to refresh...');
-      try {
-        const { credentials } = await client.refreshAccessToken();
-        client.setCredentials(credentials);
-        console.log('✅ Token refreshed successfully');
-      } catch (refreshError) {
-        console.error('❌ Token refresh failed:', refreshError.message);
-        return res.status(500).json({
-          success: false,
-          error: 'Token refresh failed'
-        });
-      }
-    }
-    
-    // Get user profile from Google
-    const oauth2 = google.oauth2({
-      auth: client,
-      version: 'v2'
-    });
-    
-    // Add explicit authorization headers debug
-    console.log('🌐 Making userinfo API call with token:', 
-      client.credentials.access_token ? 
-      client.credentials.access_token.substring(0, 20) + '...' : 'MISSING');
-    
-    const { data: profile } = await oauth2.userinfo.get();
-    
-    console.log('✅ User profile retrieved:', {
-      email: profile.email,
-      name: profile.name,
-      id: profile.id
-    });
-    
-    // Validate domain
-    if (!validateIntoTheComDomain(profile.email)) {
-      return res.status(403).json({
-        success: false,
-        error: 'Access denied. Only @intothecom.com emails are allowed.'
-      });
-    }
-    
-    // Create Google profile object for user creation
-    const googleProfile = {
-      id: profile.id,
-      email: profile.email,
-      name: profile.name,
-      picture: profile.picture,
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      token_expiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null
-    };
-    
-    // Create or update user in database
-    const user = await getOrCreateUser(googleProfile);
-    
-    // Store user in session
-    req.session.user = {
-      id: user.id,
-      email: user.email,
-      google_id: user.google_id,
-      name: profile.name,
-      picture: profile.picture
-    };
-    
-    console.log('✅ User authenticated:', user.email);
-    console.log('🔑 Session data stored:', {
-      sessionId: req.sessionID,
-      hasUser: !!req.session.user,
-      userEmail: req.session.user?.email
-    });
-    
-    // Save session explicitly before redirect
-    req.session.save((err) => {
-      if (err) {
-        console.error('❌ Session save error:', err);
-        return res.status(500).json({
-          success: false,
-          error: 'Session save failed'
-        });
-      }
-      
-      console.log('✅ Session saved successfully');
-      console.log('🍪 Cookie headers being set:', {
-        sessionId: req.sessionID,
-        cookieName: 'sessionId',
-        cookieConfig: {
-          maxAge: 24 * 60 * 60 * 1000,
-          httpOnly: true,
-          secure: isProduction ? 'auto' : false,
-          sameSite: 'lax'
-        }
-      });
-      
-      // Redirect to main app
-      res.redirect('/?login=success');
-    });
-    
-  } catch (error) {
-    console.error('OAuth callback error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Authentication failed: ' + error.message
-    });
-  }
-});
 
 // Logout endpoint
 app.post('/api/auth/logout', (req, res) => {
@@ -3209,127 +3048,8 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 });
 
 // Google Calendar authorization for individual users
-app.get('/api/auth/google/calendar', requireAuth, async (req, res) => {
-  try {
-    console.log('🗓️ Calendar authorization requested for user:', req.user.email);
-    
-    // Create OAuth client for calendar authorization
-    const client = await createUserOAuth2Client();
-    
-    if (!client) {
-      return res.status(500).json({
-        success: false,
-        error: 'Google authentication not configured'
-      });
-    }
-    
-    // Generate authorization URL with calendar-specific scopes
-    const authUrl = client.generateAuthUrl({
-      access_type: 'offline',
-      scope: SCOPES,
-      prompt: 'consent', // Force consent screen to get refresh token
-      state: `calendar_auth_${req.user.id}` // Include user ID in state
-    });
-    
-    console.log('🔗 Calendar auth URL generated for user:', req.user.email);
-    
-    res.json({
-      success: true,
-      authUrl: authUrl,
-      message: 'Calendar authorization URL generated'
-    });
-    
-  } catch (error) {
-    console.error('Calendar auth URL generation error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to generate calendar authorization URL'
-    });
-  }
-});
 
 // Google Calendar authorization callback for individual users
-app.get('/api/auth/google/calendar/callback', async (req, res) => {
-  const { code, state } = req.query;
-  
-  console.log('🗓️ Calendar callback received:', { 
-    hasCode: !!code, 
-    state: state 
-  });
-  
-  if (!code) {
-    return res.status(400).json({
-      success: false,
-      error: 'Authorization code not provided'
-    });
-  }
-  
-  // Extract user ID from state
-  const userId = state?.replace('calendar_auth_', '');
-  if (!userId) {
-    return res.status(400).json({
-      success: false,
-      error: 'Invalid state parameter'
-    });
-  }
-  
-  try {
-    // Get user from database
-    const userResult = await pool.query(
-      'SELECT * FROM users WHERE id = $1',
-      [userId]
-    );
-    
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found'
-      });
-    }
-    
-    const user = userResult.rows[0];
-    console.log('📝 Updating calendar tokens for user:', user.email);
-    
-    // Create OAuth client
-    const client = await createUserOAuth2Client();
-    
-    // Exchange code for tokens
-    const { tokens } = await client.getToken(code);
-    
-    console.log('🔑 Calendar tokens received:', {
-      hasAccessToken: !!tokens.access_token,
-      hasRefreshToken: !!tokens.refresh_token,
-      expiryDate: tokens.expiry_date
-    });
-    
-    // Update user tokens in database
-    await pool.query(`
-      UPDATE users 
-      SET access_token = $1, 
-          refresh_token = $2, 
-          token_expiry = $3,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = $4
-    `, [
-      tokens.access_token,
-      tokens.refresh_token,
-      tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-      userId
-    ]);
-    
-    console.log('✅ Calendar tokens updated for user:', user.email);
-    
-    // Redirect back to CRM with success message
-    res.redirect('/?calendar=authorized');
-    
-  } catch (error) {
-    console.error('Calendar authorization error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Calendar authorization failed: ' + error.message
-    });
-  }
-});
 
 // DEBUG: Check user tokens and OAuth client
 app.get('/api/debug/user-tokens', requireAuth, async (req, res) => {
@@ -3435,144 +3155,112 @@ app.get('/api/debug/user-tokens', requireAuth, async (req, res) => {
   }
 });
 
+// Google OAuth callback (unified login + calendar)
 app.get('/api/auth/google/callback', async (req, res) => {
   const { code } = req.query;
   
   if (!code) {
-    return res.status(400).send(
-      '<html>' +
-        '<head><title>Authentication Error</title></head>' +
-        '<body>' +
-          '<h2>❌ Authentication Error</h2>' +
-          '<p>Authorization code missing. Please try again.</p>' +
-          '<script>' +
-            'console.log("Callback error page loaded");' +
-            'if (window.opener) {' +
-              'console.log("Found opener window, sending error message");' +
-              'window.opener.postMessage({type: "google-auth-error", error: "Authorization code missing"}, "*");' +
-              'console.log("Error message sent, closing window");' +
-              'setTimeout(function() {' +
-                'window.close();' +
-              '}, 3000);' +
-            '} else {' +
-              'console.log("No opener window found");' +
-            '}' +
-          '</script>' +
-        '</body>' +
-      '</html>'
-    );
+    return res.status(400).json({
+      success: false,
+      error: 'Authorization code not provided'
+    });
   }
-
+  
+  const client = await createUserOAuth2Client();
+  
+  if (!client) {
+    return res.status(500).json({
+      success: false,
+      error: 'Google authentication not configured'
+    });
+  }
+  
   try {
-    const { tokens } = await oAuth2Client.getToken(code);
-    oAuth2Client.setCredentials(tokens);
+    // Exchange authorization code for tokens
+    const { tokens } = await client.getToken(code);
     
-    // Get user information to verify domain
-    const oauth2 = google.oauth2({ version: 'v2', auth: oAuth2Client });
-    const userInfo = await oauth2.userinfo.get();
-    const userEmail = userInfo.data.email;
-    
-    console.log('🔐 User attempting to authenticate:', userEmail);
-    
-    // Check if user email belongs to @intothecom.com domain
-    if (!userEmail.includes('@intothecom.com') && !userEmail.includes('@intothecom')) {
-      console.log('❌ Access denied: User email does not belong to authorized domain');
-      return res.status(403).send(
-        '<html>' +
-          '<head><title>Access Denied</title></head>' +
-          '<body>' +
-            '<h2>❌ Access Denied</h2>' +
-            '<p>This CRM is restricted to @intothecom.com email addresses only.</p>' +
-            '<p>Please contact your administrator if you believe this is an error.</p>' +
-            '<script>' +
-              'if (window.opener) {' +
-                'window.opener.postMessage({type: "google-auth-error", error: "Access denied: Unauthorized domain"}, "*");' +
-                'setTimeout(function() { window.close(); }, 3000);' +
-              '}' +
-            '</script>' +
-          '</body>' +
-        '</html>'
-      );
-    }
-    
-    console.log('✅ Domain verification passed for:', userEmail);
-    storedTokens = tokens;
-    
-    // Log token details for debugging
-    console.log('🔐 Received tokens:', {
+    console.log('🔑 Tokens received from Google:', {
       hasAccessToken: !!tokens.access_token,
       hasRefreshToken: !!tokens.refresh_token,
       tokenType: tokens.token_type,
-      expiryDate: tokens.expiry_date,
-      scopes: tokens.scope,
-      userEmail: userEmail
+      expiryDate: tokens.expiry_date
     });
     
-    if (!tokens.refresh_token) {
-      console.log('⚠️  WARNING: No refresh_token received! This may cause authentication issues.');
+    client.setCredentials(tokens);
+    
+    // Get user profile from Google
+    const oauth2 = google.oauth2({
+      auth: client,
+      version: 'v2'
+    });
+    
+    const { data: profile } = await oauth2.userinfo.get();
+    
+    console.log('✅ User profile retrieved:', {
+      email: profile.email,
+      name: profile.name,
+      id: profile.id
+    });
+    
+    // Validate domain
+    if (!validateIntoTheComDomain(profile.email)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. Only @intothecom.com emails are allowed.'
+      });
     }
     
-    // Persist tokens to database
-    try {
-      await pool.query(`
-        INSERT INTO google_tokens (id, tokens, created_at, updated_at) 
-        VALUES (1, $1, NOW(), NOW())
-        ON CONFLICT (id) 
-        DO UPDATE SET tokens = $1, updated_at = NOW()
-      `, [JSON.stringify(tokens)]);
-      console.log('✅ Tokens persisted to database');
-    } catch (dbError) {
-      console.error('❌ Error persisting tokens to database:', dbError);
-    }
+    // Create Google profile object for user creation
+    const googleProfile = {
+      id: profile.id,
+      email: profile.email,
+      name: profile.name,
+      picture: profile.picture,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      token_expiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null
+    };
     
-    console.log('🎉 Google Calendar authentication successful');
+    // Create or update user in database (includes calendar tokens!)
+    const user = await getOrCreateUser(googleProfile);
     
-    res.send(
-      '<html>' +
-        '<head><title>Authentication Successful</title></head>' +
-        '<body>' +
-          '<h2>✅ Authentication Successful!</h2>' +
-          '<p>You can now close this window and return to your CRM.</p>' +
-          '<script>' +
-            'console.log("Callback page loaded");' +
-            'if (window.opener) {' +
-              'console.log("Found opener window, sending message");' +
-              'window.opener.postMessage({type: "google-auth-success"}, "*");' +
-              'console.log("Message sent, closing window");' +
-              'setTimeout(function() {' +
-                'window.close();' +
-              '}, 2000);' +
-            '} else {' +
-              'console.log("No opener window found");' +
-            '}' +
-          '</script>' +
-        '</body>' +
-      '</html>'
-    );
+    // Store user in session
+    req.session.user = {
+      id: user.id,
+      email: user.email,
+      google_id: user.google_id,
+      name: profile.name,
+      picture: profile.picture
+    };
+    
+    console.log('✅ User authenticated with calendar access:', user.email);
+    console.log('🔑 Session data stored:', {
+      sessionId: req.sessionID,
+      hasUser: !!req.session.user,
+      userEmail: req.session.user?.email
+    });
+    
+    // Save session explicitly before redirect
+    req.session.save((err) => {
+      if (err) {
+        console.error('❌ Session save error:', err);
+        return res.status(500).json({
+          success: false,
+          error: 'Session save failed'
+        });
+      }
+      
+      console.log('✅ Session saved successfully, redirecting...');
+      // Redirect to main app
+      res.redirect('/?login=success');
+    });
+    
   } catch (error) {
-    console.error('Google auth error:', error);
-    res.status(500).send(
-      '<html>' +
-        '<head><title>Authentication Error</title></head>' +
-        '<body>' +
-          '<h2>❌ Authentication Error</h2>' +
-          '<p>Authentication failed. Please try again.</p>' +
-          '<script>' +
-            'console.log("Callback error page loaded");' +
-            'if (window.opener) {' +
-              'console.log("Found opener window, sending error message");' +
-              'window.opener.postMessage({type: "google-auth-error", error: "Authentication failed"}, "*");' +
-              'console.log("Error message sent, closing window");' +
-              'setTimeout(function() {' +
-                'window.close();' +
-              '}, 3000);' +
-            '} else {' +
-              'console.log("No opener window found");' +
-            '}' +
-          '</script>' +
-        '</body>' +
-      '</html>'
-    );
+    console.error('OAuth callback error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Authentication failed: ' + error.message
+    });
   }
 });
 
@@ -4231,26 +3919,6 @@ app.get('/', requireAuth, (req, res) => {
         
         window.authenticateGoogle = window.startGoogleAuth;
         
-        // Calendar authorization for individual users
-        window.authorizeCalendar = function() {
-          console.log('Calendar authorization requested');
-          fetch('/api/auth/google/calendar')
-            .then(response => response.json())
-            .then(result => {
-              console.log('Calendar auth result:', result);
-              if (result.success && result.authUrl) {
-                console.log('Redirecting to calendar auth URL');
-                window.location.href = result.authUrl;
-              } else {
-                console.error('Calendar auth failed:', result.error);
-                alert('Error al generar URL de autorización: ' + result.error);
-              }
-            })
-            .catch(error => {
-              console.error('Calendar auth error:', error);
-              alert('Error de conexión al solicitar autorización de calendario');
-            });
-        };
         
         // Disconnect Google Calendar function
         window.disconnectGoogle = function() {
@@ -9358,6 +9026,9 @@ app.get('/', requireAuth, (req, res) => {
           console.log('DOMContentLoaded event fired');
           updateCalendarTitle();
           
+          // Check for successful login
+          checkLoginSuccess();
+          
           // CONSOLIDATED: Simple auth check 
           function waitForDOM() {
             const authButton = document.getElementById('authButton');
@@ -13859,8 +13530,8 @@ app.get('/', requireAuth, (req, res) => {
                 };
               }
               
-              // Update calendar authorization UI
-              updateCalendarAuthUI(currentUser.hasCalendarAuth);
+              // Calendar should be authorized automatically on login
+              console.log('Calendar auth status:', currentUser.hasCalendarAuth);
               
             } else {
               // Fallback to Google Auth
@@ -13921,30 +13592,14 @@ app.get('/', requireAuth, (req, res) => {
           }
         }
         
-        // Update calendar authorization UI
-        function updateCalendarAuthUI(hasAuth) {
-          console.log('Updating calendar auth UI, hasAuth:', hasAuth);
-          
-          // Update calendar tab to show auth status
-          const calendarGrid = document.querySelector('.calendar-grid');
-          if (calendarGrid && !hasAuth) {
-            calendarGrid.innerHTML = 
-              '<div class="auth-prompt">' +
-                '<h3>📅 Autoriza tu Google Calendar</h3>' +
-                '<p>Para ver tus eventos de calendario, necesitas autorizar el acceso a tu Google Calendar personal.</p>' +
-                '<button class="btn btn-primary" onclick="authorizeCalendar()">' +
-                  '🔑 Autorizar Google Calendar' +
-                '</button>' +
-              '</div>';
-          }
-          
-          // Show success message if calendar was just authorized
+        // Check for successful login and load calendar automatically
+        function checkLoginSuccess() {
           const urlParams = new URLSearchParams(window.location.search);
-          if (urlParams.get('calendar') === 'authorized') {
-            showNotification('✅ Google Calendar autorizado correctamente. ¡Cargando eventos...', 'success');
+          if (urlParams.get('login') === 'success') {
+            showNotification('✅ Conectado correctamente. Calendario disponible automáticamente.', 'success');
             // Remove the parameter from URL
             window.history.replaceState({}, document.title, window.location.pathname);
-            // Reload calendar events
+            // Load calendar events automatically
             setTimeout(() => {
               if (typeof loadCalendarEvents === 'function') {
                 loadCalendarEvents();
