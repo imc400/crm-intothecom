@@ -2830,7 +2830,11 @@ async function storeEventInDatabase(event) {
 }
 
 // Google Calendar Authentication
-const SCOPES = ['https://www.googleapis.com/auth/calendar'];
+const SCOPES = [
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile'
+];
 // Legacy global OAuth client (will be deprecated in favor of per-user clients)
 let oAuth2Client = null;
 let storedTokens = null;
@@ -2986,13 +2990,54 @@ app.get('/api/auth/google/callback', async (req, res) => {
     
     client.setCredentials(tokens);
     
+    // Verify credentials were set correctly
+    const currentCredentials = client.credentials;
+    console.log('🔐 Client credentials verification:', {
+      hasAccessToken: !!currentCredentials.access_token,
+      hasRefreshToken: !!currentCredentials.refresh_token,
+      tokenType: currentCredentials.token_type,
+      accessTokenPrefix: currentCredentials.access_token ? 
+        currentCredentials.access_token.substring(0, 20) + '...' : 'MISSING'
+    });
+    
     console.log('🔐 Client credentials set, attempting to get user profile...');
+    
+    // Ensure the client has valid credentials before making API calls
+    if (!client.credentials.access_token) {
+      console.error('❌ No access token available after setCredentials');
+      return res.status(500).json({
+        success: false,
+        error: 'Authentication failed - no access token'
+      });
+    }
+    
+    // Check if token needs refresh
+    const now = Date.now();
+    if (client.credentials.expiry_date && client.credentials.expiry_date <= now) {
+      console.log('🔄 Token expired, attempting to refresh...');
+      try {
+        const { credentials } = await client.refreshAccessToken();
+        client.setCredentials(credentials);
+        console.log('✅ Token refreshed successfully');
+      } catch (refreshError) {
+        console.error('❌ Token refresh failed:', refreshError.message);
+        return res.status(500).json({
+          success: false,
+          error: 'Token refresh failed'
+        });
+      }
+    }
     
     // Get user profile from Google
     const oauth2 = google.oauth2({
       auth: client,
       version: 'v2'
     });
+    
+    // Add explicit authorization headers debug
+    console.log('🌐 Making userinfo API call with token:', 
+      client.credentials.access_token ? 
+      client.credentials.access_token.substring(0, 20) + '...' : 'MISSING');
     
     const { data: profile } = await oauth2.userinfo.get();
     
