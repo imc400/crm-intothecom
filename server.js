@@ -2915,7 +2915,7 @@ async function initializeGoogleAuth() {
 // ===================================
 
 // Start Google OAuth flow (per-user)
-app.get('/api/auth/google', (req, res) => {
+app.get('/api/auth/google', async (req, res) => {
   const client = await createUserOAuth2Client();
   
   if (!client) {
