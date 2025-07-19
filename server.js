@@ -3168,7 +3168,7 @@ app.post('/api/auth/logout', (req, res) => {
   });
 });
 
-// Get current user session info with calendar authorization status
+// Get current user session info
 app.get('/api/auth/me', requireAuth, async (req, res) => {
   try {
     // Get full user data including calendar tokens
@@ -4230,77 +4230,6 @@ app.get('/', requireAuth, (req, res) => {
         };
         
         window.authenticateGoogle = window.startGoogleAuth;
-        
-        // Calendar authorization functions
-        window.authorizeCalendar = function() {
-          console.log('Calendar authorization requested');
-          fetch('/api/auth/google/calendar')
-            .then(response => response.json())
-            .then(result => {
-              console.log('Calendar auth result:', result);
-              if (result.success && result.authUrl) {
-                console.log('Redirecting to calendar auth URL');
-                window.location.href = result.authUrl;
-              } else {
-                console.error('Calendar auth failed:', result.error);
-                alert('Error al generar URL de autorización: ' + result.error);
-              }
-            })
-            .catch(error => {
-              console.error('Calendar auth error:', error);
-              alert('Error de conexión al solicitar autorización de calendario');
-            });
-        };
-        
-        // Update calendar authorization UI
-        function updateCalendarAuthUI(hasAuth) {
-          console.log('Updating calendar auth UI, hasAuth:', hasAuth);
-          
-          // Update calendar tab to show auth status
-          const calendarGrid = document.querySelector('.calendar-grid');
-          if (calendarGrid && !hasAuth) {
-            calendarGrid.innerHTML = '<div class="auth-prompt">' +
-              '<h3>🗓️ Autoriza tu Google Calendar</h3>' +
-              '<p>Para ver tus eventos de calendario, necesitas autorizar el acceso a tu Google Calendar personal.</p>' +
-              '<button class="btn btn-primary" onclick="authorizeCalendar()">' +
-                '📅 Autorizar Google Calendar' +
-              '</button>' +
-            '</div>';
-          }
-          
-          // Show success message if calendar was just authorized
-          const urlParams = new URLSearchParams(window.location.search);
-          if (urlParams.get('calendar') === 'authorized') {
-            showNotification('✅ Google Calendar autorizado correctamente. ¡Cargando eventos...', 'success');
-            // Remove the parameter from URL
-            window.history.replaceState({}, document.title, window.location.pathname);
-            // Reload calendar events
-            setTimeout(() => {
-              if (typeof loadCalendarEvents === 'function') {
-                loadCalendarEvents();
-              }
-            }, 1000);
-          }
-        }
-        
-        // Simple notification function
-        function showNotification(message, type = 'info') {
-          const notification = document.createElement('div');
-          notification.className = `notification notification-${type}`;
-          notification.textContent = message;
-          notification.style.cssText = `
-            position: fixed; top: 20px; right: 20px; z-index: 10000;
-            background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
-            color: white; padding: 15px 20px; border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px;
-          `;
-          document.body.appendChild(notification);
-          setTimeout(() => {
-            if (notification.parentNode) {
-              notification.parentNode.removeChild(notification);
-            }
-          }, 5000);
-        }
         
         // Disconnect Google Calendar function
         window.disconnectGoogle = function() {
@@ -13865,53 +13794,30 @@ app.get('/', requireAuth, (req, res) => {
           });
         }
         
-        // Get current user info with profile integration and calendar auth status
+        // Get current user info with profile integration
         async function getCurrentUser() {
           try {
-            // Get user auth info including calendar authorization status
-            const authResponse = await fetch('/api/auth/me');
-            const authData = await authResponse.json();
+            // Get user profile from our profile API
+            const profileResponse = await fetch('/api/profile');
+            const profileData = await profileResponse.json();
             
-            if (authData.success && authData.user) {
-              const user = authData.user;
+            if (profileData.success && profileData.profile) {
+              const profile = profileData.profile;
               
-              // Get user profile from our profile API
-              const profileResponse = await fetch('/api/profile');
-              const profileData = await profileResponse.json();
+              // Use full profile information
+              currentUser = {
+                email: profile.email,
+                name: profile.full_name || (profile.first_name + ' ' + profile.last_name).trim() || profile.email.split('@')[0],
+                firstName: profile.first_name,
+                lastName: profile.last_name,
+                position: profile.position,
+                profileImage: profile.profile_image_url
+              };
               
-              if (profileData.success && profileData.profile) {
-                const profile = profileData.profile;
-                
-                // Use full profile information
-                currentUser = {
-                  id: user.id,
-                  email: user.email,
-                  name: profile.full_name || (profile.first_name + ' ' + profile.last_name).trim() || user.name || user.email.split('@')[0],
-                  firstName: profile.first_name,
-                  lastName: profile.last_name,
-                  position: profile.position,
-                  profileImage: profile.profile_image_url || user.picture,
-                  hasCalendarAuth: user.hasCalendarAuth
-                };
-                
-                // Cache the profile for avatar usage
-                userProfileCache.set(profile.email, profile);
-                
-                console.log('✅ Got user profile for chat:', currentUser);
-              } else {
-                // Use auth data as fallback
-                currentUser = {
-                  id: user.id,
-                  email: user.email,
-                  name: user.name || user.email.split('@')[0],
-                  profileImage: user.picture,
-                  hasCalendarAuth: user.hasCalendarAuth
-                };
-              }
+              // Cache the profile for avatar usage
+              userProfileCache.set(profile.email, profile);
               
-              // Update calendar authorization UI
-              updateCalendarAuthUI(currentUser.hasCalendarAuth);
-              
+              console.log('✅ Got user profile for chat:', currentUser);
             } else {
               // Fallback to Google Auth
               const authResponse = await fetch('/api/auth/status');
