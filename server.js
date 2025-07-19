@@ -6359,6 +6359,31 @@ app.get('/', (req, res) => {
           font-style: italic;
           padding: 40px;
         }
+
+        /* Paid projects styling */
+        .finance-table .project-paid {
+          background: rgba(34, 197, 94, 0.1) !important;
+          border-left: 4px solid #22c55e !important;
+        }
+
+        .finance-table .project-paid:hover {
+          background: rgba(34, 197, 94, 0.15) !important;
+          transform: translateY(-1px);
+          box-shadow: 0 4px 12px rgba(34, 197, 94, 0.2);
+        }
+
+        .finance-table .project-paid td {
+          position: relative;
+        }
+
+        .finance-table .project-paid td:first-child::after {
+          content: "✓";
+          position: absolute;
+          right: 10px;
+          color: #22c55e;
+          font-weight: bold;
+          font-size: 16px;
+        }
         
         .finance-actions {
           display: flex;
@@ -10958,6 +10983,14 @@ app.get('/', (req, res) => {
                     totalFormatted = '$' + Math.round(project.total_amount).toLocaleString('es-CL');
                     paidFormatted = '$' + Math.round(project.paid_amount).toLocaleString('es-CL');
                     pendingFormatted = '$' + Math.round(project.pending_amount).toLocaleString('es-CL');
+                  }
+                  
+                  // Check if project is fully paid (paid_amount equals total_amount)
+                  const isFullyPaid = parseFloat(project.paid_amount) >= parseFloat(project.total_amount);
+                  
+                  // Add CSS class for paid projects
+                  if (isFullyPaid) {
+                    row.classList.add('project-paid');
                   }
                   
                   row.innerHTML = 
