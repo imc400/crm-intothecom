@@ -2841,12 +2841,20 @@ async function createUserOAuth2Client(user = null) {
   
   if (process.env.NODE_ENV === 'production') {
     // In production, use environment variables
+    console.log('🔧 Production OAuth setup:', {
+      hasClientId: !!process.env.GOOGLE_CLIENT_ID,
+      hasClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+      hasRedirectUri: !!process.env.GOOGLE_REDIRECT_URI
+    });
+    
     if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       client = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID,
         process.env.GOOGLE_CLIENT_SECRET,
         process.env.GOOGLE_REDIRECT_URI || 'https://crm-intothecom-production.up.railway.app/api/auth/google/callback'
       );
+    } else {
+      console.error('❌ Missing Google OAuth environment variables in production');
     }
   } else {
     // In development, use the credentials file
@@ -2855,11 +2863,19 @@ async function createUserOAuth2Client(user = null) {
       const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
       const { client_secret, client_id, redirect_uris } = credentials.installed;
       
+      console.log('🔧 Development OAuth setup:', {
+        clientId: client_id.substring(0, 20) + '...',
+        hasClientSecret: !!client_secret,
+        redirectUri: redirect_uris[0]
+      });
+      
       client = new google.auth.OAuth2(
         client_id,
         client_secret,
         redirect_uris[0]
       );
+    } else {
+      console.error('❌ Google credentials file not found at:', CREDENTIALS_PATH);
     }
   }
   
@@ -2960,7 +2976,17 @@ app.get('/api/auth/google/callback', async (req, res) => {
   try {
     // Exchange authorization code for tokens
     const { tokens } = await client.getToken(code);
+    
+    console.log('🔑 Tokens received from Google:', {
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      tokenType: tokens.token_type,
+      expiryDate: tokens.expiry_date
+    });
+    
     client.setCredentials(tokens);
+    
+    console.log('🔐 Client credentials set, attempting to get user profile...');
     
     // Get user profile from Google
     const oauth2 = google.oauth2({
@@ -2969,6 +2995,12 @@ app.get('/api/auth/google/callback', async (req, res) => {
     });
     
     const { data: profile } = await oauth2.userinfo.get();
+    
+    console.log('✅ User profile retrieved:', {
+      email: profile.email,
+      name: profile.name,
+      id: profile.id
+    });
     
     // Validate domain
     if (!validateIntoTheComDomain(profile.email)) {
