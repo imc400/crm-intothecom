@@ -527,16 +527,31 @@ async function initDatabase() {
     // Create sessions table for express-session with connect-pg-simple
     console.log('Creating sessions table...');
     try {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS "session" (
-          "sid" VARCHAR NOT NULL COLLATE "default",
-          "sess" JSON NOT NULL,
-          "expire" TIMESTAMP(6) NOT NULL
-        ) WITH (OIDS=FALSE);
-        ALTER TABLE "session" ADD CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE;
-        CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
+      // Check if table exists first
+      const tableExists = await pool.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_name = 'session'
+        );
       `);
-      console.log('✅ sessions table created successfully');
+      
+      if (!tableExists.rows[0].exists) {
+        // Create table with primary key only if it doesn't exist
+        await pool.query(`
+          CREATE TABLE "session" (
+            "sid" VARCHAR NOT NULL COLLATE "default" PRIMARY KEY,
+            "sess" JSON NOT NULL,
+            "expire" TIMESTAMP(6) NOT NULL
+          ) WITH (OIDS=FALSE);
+        `);
+        console.log('✅ sessions table created successfully');
+      } else {
+        console.log('✅ sessions table already exists');
+      }
+      
+      // Always try to create index (IF NOT EXISTS handles duplicates)
+      await pool.query(`CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");`);
+      
     } catch (error) {
       console.log('sessions table creation error:', error.message);
     }
@@ -673,12 +688,22 @@ if (!fs.existsSync(uploadsDir)) {
 
 // Authentication middleware to require login for protected routes
 function requireAuth(req, res, next) {
+  console.log('🔒 requireAuth middleware - checking session:', {
+    hasSession: !!req.session,
+    sessionId: req.sessionID,
+    hasUser: !!req.session?.user,
+    userEmail: req.session?.user?.email,
+    url: req.url
+  });
+  
   if (req.session && req.session.user) {
     // User is authenticated
     req.user = req.session.user;
+    console.log('✅ User authenticated, proceeding...');
     next();
   } else {
     // User not authenticated, redirect to login
+    console.log('❌ User not authenticated, redirecting to login');
     if (req.xhr || req.headers.accept.indexOf('json') > -1) {
       // API request
       res.status(401).json({
@@ -3079,9 +3104,26 @@ app.get('/api/auth/google/callback', async (req, res) => {
     };
     
     console.log('✅ User authenticated:', user.email);
+    console.log('🔑 Session data stored:', {
+      sessionId: req.sessionID,
+      hasUser: !!req.session.user,
+      userEmail: req.session.user?.email
+    });
     
-    // Redirect to main app
-    res.redirect('/?login=success');
+    // Save session explicitly before redirect
+    req.session.save((err) => {
+      if (err) {
+        console.error('❌ Session save error:', err);
+        return res.status(500).json({
+          success: false,
+          error: 'Session save failed'
+        });
+      }
+      
+      console.log('✅ Session saved successfully, redirecting...');
+      // Redirect to main app
+      res.redirect('/?login=success');
+    });
     
   } catch (error) {
     console.error('OAuth callback error:', error);
