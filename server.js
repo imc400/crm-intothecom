@@ -2431,29 +2431,36 @@ app.delete('/api/tags/:tagId', async (req, res) => {
   }
 });
 
-// Get event details
-app.get('/api/events/:eventId', async (req, res) => {
+// Get event details (multi-user)
+app.get('/api/events/:eventId', requireAuth, async (req, res) => {
   const { eventId } = req.params;
   
   try {
-    if (!oAuth2Client) {
-      return res.status(500).json({
-        success: false,
-        error: 'Google Calendar client not configured'
-      });
-    }
+    // Get user from database to access their Google tokens
+    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
     
-    if (!storedTokens) {
+    if (userResult.rows.length === 0 || !userResult.rows[0].access_token) {
       return res.status(401).json({
         success: false,
-        error: 'Google Calendar not authenticated'
+        error: 'User not authenticated with Google Calendar. Please login again.',
+        needsLogin: true
       });
     }
     
-    // Set credentials to ensure they're current
-    oAuth2Client.setCredentials(storedTokens);
+    const user = userResult.rows[0];
+    console.log('Getting event details for user:', user.email);
     
-    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+    // Create user-specific OAuth client
+    const userOAuthClient = createUserOAuth2Client(user);
+    
+    if (!userOAuthClient) {
+      return res.status(500).json({
+        success: false,
+        error: 'Google authentication not configured'
+      });
+    }
+    
+    const calendar = google.calendar({ version: 'v3', auth: userOAuthClient });
     const response = await calendar.events.get({
       calendarId: 'primary',
       eventId: eventId
@@ -3268,45 +3275,35 @@ app.get('/api/auth/status', async (req, res) => {
   }
 });
 
-// Google Calendar Events endpoint
-app.get('/api/calendar/events', async (req, res) => {
+// Google Calendar Events endpoint (multi-user)
+app.get('/api/calendar/events', requireAuth, async (req, res) => {
   
-  if (!oAuth2Client) {
-    return res.status(500).json({
-      success: false,
-      error: 'Google authentication not configured'
-    });
-  }
-
-  if (!storedTokens) {
-    console.log('ERROR: storedTokens not found, attempting to reload from database');
-    // Try to reload tokens from database
-    try {
-      const tokenResult = await pool.query('SELECT tokens FROM google_tokens ORDER BY created_at DESC LIMIT 1');
-      if (tokenResult.rows.length > 0) {
-        storedTokens = tokenResult.rows[0].tokens;
-        console.log('Tokens reloaded from database');
-      } else {
-        console.log('No tokens found in database');
-        return res.status(401).json({
-          success: false,
-          error: 'Google Calendar not authenticated'
-        });
-      }
-    } catch (dbError) {
-      console.log('Database error loading tokens:', dbError);
-      return res.status(500).json({
+  try {
+    // Get user from database to access their Google tokens
+    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+    
+    if (userResult.rows.length === 0 || !userResult.rows[0].access_token) {
+      return res.status(401).json({
         success: false,
-        error: 'Database error loading authentication tokens'
+        error: 'User not authenticated with Google Calendar. Please login again.',
+        needsLogin: true
       });
     }
-  }
-
-  try {
-    // Set credentials to ensure they're current
-    oAuth2Client.setCredentials(storedTokens);
     
-    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+    const user = userResult.rows[0];
+    console.log('Loading calendar events for user:', user.email);
+    
+    // Create user-specific OAuth client
+    const userOAuthClient = createUserOAuth2Client(user);
+    
+    if (!userOAuthClient) {
+      return res.status(500).json({
+        success: false,
+        error: 'Google authentication not configured'
+      });
+    }
+    
+    const calendar = google.calendar({ version: 'v3', auth: userOAuthClient });
     const view = req.query.view || 'week';
     const dateParam = req.query.date;
     
@@ -3491,14 +3488,7 @@ app.get('/api/calendar/events', async (req, res) => {
 });
 
 // Create new calendar event
-app.post('/api/events', async (req, res) => {
-  if (!oAuth2Client) {
-    return res.status(500).json({
-      success: false,
-      error: 'Google authentication not configured'
-    });
-  }
-
+app.post('/api/events', requireAuth, async (req, res) => {
   const { summary, description, start, end, attendees, notes, attendeeTags } = req.body;
   
   // Validate required fields
@@ -3510,7 +3500,31 @@ app.post('/api/events', async (req, res) => {
   }
 
   try {
-    const calendar = google.calendar({ version: 'v3', auth: oAuth2Client });
+    // Get user from database to access their Google tokens
+    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+    
+    if (userResult.rows.length === 0 || !userResult.rows[0].access_token) {
+      return res.status(401).json({
+        success: false,
+        error: 'User not authenticated with Google Calendar. Please login again.',
+        needsLogin: true
+      });
+    }
+    
+    const user = userResult.rows[0];
+    console.log('Creating calendar event for user:', user.email);
+    
+    // Create user-specific OAuth client
+    const userOAuthClient = createUserOAuth2Client(user);
+    
+    if (!userOAuthClient) {
+      return res.status(500).json({
+        success: false,
+        error: 'Google authentication not configured'
+      });
+    }
+    
+    const calendar = google.calendar({ version: 'v3', auth: userOAuthClient });
     
     // Prepare event data
     const eventData = {
