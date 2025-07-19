@@ -7053,6 +7053,9 @@ app.get('/', (req, res) => {
         }
         
       </style>
+      
+      <!-- Socket.io Client -->
+      <script src="/socket.io/socket.io.js"></script>
     </head>
     <body>
       <div class="app-container">
@@ -12428,6 +12431,357 @@ app.get('/', (req, res) => {
           }
         }
         
+        // ===================================
+        // CHAT SYSTEM JAVASCRIPT
+        // ===================================
+        
+        let socket;
+        let currentChannel = { id: 1, name: 'general' };
+        let currentUser = { email: '', name: '' };
+        let channels = [];
+        let messages = [];
+        
+        // Initialize chat system
+        function initializeChat() {
+          console.log('🔄 Initializing chat system...');
+          
+          // Initialize Socket.io
+          socket = io();
+          
+          // Set up socket event listeners
+          setupSocketListeners();
+          
+          // Load user info from auth
+          getCurrentUser();
+          
+          // Load channels
+          loadChannels();
+          
+          // Load messages for default channel
+          loadMessages(currentChannel.id);
+          
+          console.log('✅ Chat system initialized');
+        }
+        
+        // Set up Socket.io event listeners
+        function setupSocketListeners() {
+          socket.on('connect', () => {
+            console.log('🔌 Connected to chat server:', socket.id);
+            if (currentUser.email) {
+              socket.emit('join-chat', currentUser);
+            }
+          });
+          
+          socket.on('disconnect', () => {
+            console.log('❌ Disconnected from chat server');
+          });
+          
+          socket.on('message-received', (message) => {
+            displayMessage(message);
+            scrollToBottom();
+          });
+          
+          socket.on('user-joined', (userData) => {
+            console.log('👤 User joined:', userData.email);
+          });
+          
+          socket.on('user-left', (userData) => {
+            console.log('👋 User left:', userData.email);
+          });
+          
+          socket.on('message-error', (error) => {
+            console.error('Message error:', error);
+            alert('Error sending message: ' + error.error);
+          });
+        }
+        
+        // Get current user info
+        async function getCurrentUser() {
+          try {
+            // For now, use a placeholder until we integrate with auth
+            currentUser = {
+              email: 'user@intothecom.com',
+              name: 'Usuario'
+            };
+            
+            // Update UI
+            const userNameEl = document.getElementById('chatUserName');
+            if (userNameEl) {
+              userNameEl.textContent = currentUser.name;
+            }
+            
+            // Join chat with user info
+            if (socket && socket.connected) {
+              socket.emit('join-chat', currentUser);
+            }
+          } catch (error) {
+            console.error('Error getting current user:', error);
+          }
+        }
+        
+        // Load channels from API
+        async function loadChannels() {
+          try {
+            const response = await fetch('/api/chat/channels');
+            const data = await response.json();
+            
+            if (data.success) {
+              channels = data.data;
+              updateChannelsList();
+              
+              // Join all channels
+              for (const channel of channels) {
+                await joinChannel(channel.id);
+              }
+            }
+          } catch (error) {
+            console.error('Error loading channels:', error);
+          }
+        }
+        
+        // Update channels list in sidebar
+        function updateChannelsList() {
+          const channelsList = document.getElementById('channelsList');
+          if (!channelsList) return;
+          
+          channelsList.innerHTML = '';
+          
+          channels.forEach(channel => {
+            const channelItem = document.createElement('div');
+            channelItem.className = 'channel-item';
+            channelItem.dataset.channelId = channel.id;
+            
+            if (channel.id === currentChannel.id) {
+              channelItem.classList.add('active');
+            }
+            
+            channelItem.innerHTML = `
+              <span class="channel-hash">#</span>
+              <span class="channel-name">${channel.name}</span>
+            `;
+            
+            channelItem.addEventListener('click', () => {
+              switchChannel(channel);
+            });
+            
+            channelsList.appendChild(channelItem);
+          });
+        }
+        
+        // Switch to a different channel
+        function switchChannel(channel) {
+          // Update current channel
+          currentChannel = channel;
+          
+          // Update UI
+          updateChannelsList();
+          updateChannelHeader();
+          
+          // Load messages for new channel
+          loadMessages(channel.id);
+          
+          // Update input placeholder
+          const input = document.getElementById('chatMessageInput');
+          if (input) {
+            input.placeholder = `Escribe un mensaje en #${channel.name}...`;
+          }
+        }
+        
+        // Update channel header
+        function updateChannelHeader() {
+          const nameEl = document.getElementById('currentChannelName');
+          const descEl = document.getElementById('currentChannelDescription');
+          
+          if (nameEl) {
+            nameEl.textContent = `# ${currentChannel.name}`;
+          }
+          
+          if (descEl) {
+            const channel = channels.find(c => c.id === currentChannel.id);
+            descEl.textContent = channel ? channel.description : '';
+          }
+        }
+        
+        // Load messages for a channel
+        async function loadMessages(channelId) {
+          try {
+            const response = await fetch(`/api/chat/channels/${channelId}/messages`);
+            const data = await response.json();
+            
+            if (data.success) {
+              messages = data.data;
+              displayMessages();
+              scrollToBottom();
+            }
+          } catch (error) {
+            console.error('Error loading messages:', error);
+          }
+        }
+        
+        // Display all messages
+        function displayMessages() {
+          const messagesContainer = document.getElementById('chatMessages');
+          if (!messagesContainer) return;
+          
+          messagesContainer.innerHTML = `
+            <div class="message-day-separator">
+              <span>Hoy</span>
+            </div>
+          `;
+          
+          messages.forEach(message => {
+            displayMessage(message, false);
+          });
+        }
+        
+        // Display a single message
+        function displayMessage(message, isNew = true) {
+          const messagesContainer = document.getElementById('chatMessages');
+          if (!messagesContainer) return;
+          
+          const messageEl = document.createElement('div');
+          messageEl.className = 'chat-message';
+          messageEl.dataset.messageId = message.id;
+          
+          const timestamp = new Date(message.timestamp || message.created_at);
+          const timeString = timestamp.toLocaleTimeString('es-CL', { 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          });
+          
+          messageEl.innerHTML = `
+            <div class="message-avatar">
+              ${getUserInitials(message.user_name)}
+            </div>
+            <div class="message-content">
+              <div class="message-header">
+                <span class="message-author">${message.user_name}</span>
+                <span class="message-timestamp">${timeString}</span>
+              </div>
+              <div class="message-text">${escapeHtml(message.message_text)}</div>
+            </div>
+          `;
+          
+          if (isNew) {
+            messagesContainer.appendChild(messageEl);
+            // Add to local messages array
+            messages.push(message);
+          } else {
+            messagesContainer.appendChild(messageEl);
+          }
+        }
+        
+        // Send a chat message
+        function sendChatMessage() {
+          const input = document.getElementById('chatMessageInput');
+          if (!input) return;
+          
+          const text = input.value.trim();
+          if (!text) return;
+          
+          const messageData = {
+            channelId: currentChannel.id,
+            userEmail: currentUser.email,
+            userName: currentUser.name,
+            text: text,
+            type: 'text'
+          };
+          
+          // Send via Socket.io
+          socket.emit('new-message', messageData);
+          
+          // Clear input
+          input.value = '';
+          autoResizeTextarea(input);
+        }
+        
+        // Handle chat input keydown
+        function handleChatKeydown(event) {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            sendChatMessage();
+          }
+        }
+        
+        // Auto-resize textarea
+        function autoResizeTextarea(textarea) {
+          textarea.style.height = 'auto';
+          textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+        }
+        
+        // Join a channel
+        async function joinChannel(channelId) {
+          try {
+            await fetch(`/api/chat/channels/${channelId}/join`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                userEmail: currentUser.email,
+                userName: currentUser.name
+              })
+            });
+          } catch (error) {
+            console.error('Error joining channel:', error);
+          }
+        }
+        
+        // Utility functions
+        function getUserInitials(name) {
+          return name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
+        }
+        
+        function escapeHtml(text) {
+          const div = document.createElement('div');
+          div.textContent = text;
+          return div.innerHTML;
+        }
+        
+        function scrollToBottom() {
+          const messagesContainer = document.getElementById('chatMessages');
+          if (messagesContainer) {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+          }
+        }
+        
+        // Placeholder functions for future features
+        function openCreateChannelModal() {
+          alert('Crear canal - Funcionalidad próximamente');
+        }
+        
+        function openChannelSettings() {
+          alert('Configuración del canal - Funcionalidad próximamente');
+        }
+        
+        function openEmojiPicker() {
+          // For now, just insert a smiley face
+          const input = document.getElementById('chatMessageInput');
+          if (input) {
+            input.value += ' 😊';
+            input.focus();
+          }
+        }
+        
+        function openFileUpload() {
+          alert('Subida de archivos - Funcionalidad próximamente');
+        }
+        
+        // Initialize chat when tab is opened
+        function initializeChatTab() {
+          if (!socket) {
+            initializeChat();
+          }
+        }
+        
+        // Add chat initialization to tab switching
+        const originalShowTab = showTab;
+        function showTab(tabName) {
+          originalShowTab(tabName);
+          
+          if (tabName === 'chat') {
+            setTimeout(initializeChatTab, 100);
+          }
+        }
+        
       </script>
       
       <!-- Modal para crear nueva reunión -->
@@ -12624,6 +12978,143 @@ app.get('/', (req, res) => {
     </body>
     </html>
   `);
+});
+
+// ===================================
+// CHAT API ENDPOINTS
+// ===================================
+
+// Get all channels
+app.get('/api/chat/channels', async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT c.*, 
+             COUNT(DISTINCT cm.user_email) as member_count,
+             (SELECT COUNT(*) FROM chat_messages WHERE channel_id = c.id) as message_count
+      FROM chat_channels c
+      LEFT JOIN chat_members cm ON c.id = cm.channel_id
+      GROUP BY c.id
+      ORDER BY c.created_at ASC
+    `);
+    
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching channels:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch channels'
+    });
+  }
+});
+
+// Get messages for a channel
+app.get('/api/chat/channels/:channelId/messages', async (req, res) => {
+  const { channelId } = req.params;
+  const { limit = 50, offset = 0 } = req.query;
+  
+  try {
+    const result = await pool.query(`
+      SELECT 
+        cm.*,
+        EXTRACT(EPOCH FROM cm.created_at) * 1000 as timestamp
+      FROM chat_messages cm
+      WHERE cm.channel_id = $1 AND cm.is_deleted = false
+      ORDER BY cm.created_at DESC
+      LIMIT $2 OFFSET $3
+    `, [channelId, limit, offset]);
+    
+    // Reverse to show oldest first
+    const messages = result.rows.reverse();
+    
+    res.json({
+      success: true,
+      data: messages
+    });
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch messages'
+    });
+  }
+});
+
+// Create a new channel
+app.post('/api/chat/channels', async (req, res) => {
+  const { name, description, is_private = false } = req.body;
+  
+  try {
+    // Validate channel name
+    if (!name || name.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Channel name is required'
+      });
+    }
+    
+    // Check if channel already exists
+    const existingChannel = await pool.query(
+      'SELECT id FROM chat_channels WHERE name = $1',
+      [name.toLowerCase().trim()]
+    );
+    
+    if (existingChannel.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Channel with this name already exists'
+      });
+    }
+    
+    const result = await pool.query(`
+      INSERT INTO chat_channels (name, description, is_private, created_by)
+      VALUES ($1, $2, $3, $4)
+      RETURNING *
+    `, [
+      name.toLowerCase().trim(),
+      description || '',
+      is_private,
+      'system' // TODO: Use actual user email when auth is implemented
+    ]);
+    
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error creating channel:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create channel'
+    });
+  }
+});
+
+// Join a channel
+app.post('/api/chat/channels/:channelId/join', async (req, res) => {
+  const { channelId } = req.params;
+  const { userEmail, userName } = req.body;
+  
+  try {
+    await pool.query(`
+      INSERT INTO chat_members (channel_id, user_email, user_name)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (channel_id, user_email) DO NOTHING
+    `, [channelId, userEmail, userName]);
+    
+    res.json({
+      success: true,
+      message: 'Successfully joined channel'
+    });
+  } catch (error) {
+    console.error('Error joining channel:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to join channel'
+    });
+  }
 });
 
 // Socket.io chat functionality
