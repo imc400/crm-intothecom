@@ -4468,6 +4468,10 @@ app.get('/', requireAuth, (req, res) => {
         #funnel-tab {
           overflow: visible;
         }
+
+        #chat-tab, #profile-tab {
+          overflow-y: auto;
+        }
         
         .tab-content::before {
           content: '';
@@ -6274,8 +6278,8 @@ app.get('/', requireAuth, (req, res) => {
           backdrop-filter: blur(20px);
           border: 1px solid var(--glass-border);
           border-radius: 20px;
-          padding: 24px 32px;
-          margin-bottom: 24px;
+          padding: 20px 32px;
+          margin-bottom: 16px;
           box-shadow: var(--shadow-soft);
           text-align: center;
           position: relative;
@@ -7492,6 +7496,7 @@ app.get('/', requireAuth, (req, res) => {
           max-width: 800px;
           margin: 0 auto;
           padding: 20px;
+          min-height: calc(100vh - 380px);
         }
         
         .profile-main {
@@ -7632,12 +7637,13 @@ app.get('/', requireAuth, (req, res) => {
         
         .chat-container {
           display: flex;
-          height: 85vh;
+          height: calc(100vh - 380px);
+          min-height: 420px;
           background: var(--bg-primary);
           border-radius: 12px;
           overflow: hidden;
           box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-          margin-top: 20px;
+          margin-top: 0;
         }
         
         /* Chat Sidebar */
@@ -7991,7 +7997,8 @@ app.get('/', requireAuth, (req, res) => {
         
         @media (max-width: 600px) {
           .chat-container {
-            height: 80vh;
+            height: calc(100vh - 330px);
+            min-height: 370px;
           }
           
           .chat-sidebar {
@@ -13838,19 +13845,34 @@ app.get('/', requireAuth, (req, res) => {
         async function loadChannels() {
           try {
             const response = await fetch('/api/chat/channels');
+            
+            if (!response.ok) {
+              throw new Error('Failed to fetch channels: ' + response.status);
+            }
+            
             const data = await response.json();
             
-            if (data.success) {
+            if (data.success && data.data) {
               channels = data.data;
+              console.log('✅ Loaded', channels.length, 'channels');
               updateChannelsList();
               
               // Join all channels
               for (const channel of channels) {
                 await joinChannel(channel.id);
               }
+            } else {
+              throw new Error('Invalid response or no channels found');
             }
           } catch (error) {
-            console.error('Error loading channels:', error);
+            console.error('❌ Error loading channels:', error);
+            // Fallback to default channel
+            channels = [{
+              id: 1,
+              name: 'general',
+              description: 'Canal general para toda la empresa'
+            }];
+            updateChannelsList();
           }
         }
         
@@ -14173,7 +14195,7 @@ app.get('/', requireAuth, (req, res) => {
           const chatTab = document.querySelector('[data-tab="chat"]');
           if (chatTab) {
             chatTab.addEventListener('click', function() {
-              setTimeout(initializeChatTab, 200);
+              initializeChatTab();
             });
           }
         });
