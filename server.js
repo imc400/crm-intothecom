@@ -4159,22 +4159,6 @@ app.get('/', requireAuth, (req, res) => {
           font-style: italic;
         }
         
-        .logout-btn {
-          background: rgba(255, 255, 255, 0.1);
-          border: 1px solid rgba(255, 255, 255, 0.2);
-          color: rgba(255, 255, 255, 0.8);
-          padding: 8px;
-          border-radius: 6px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-          font-size: 16px;
-        }
-        
-        .logout-btn:hover {
-          background: rgba(255, 255, 255, 0.2);
-          color: #ffffff;
-          transform: scale(1.05);
-        }
         
         .logo {
           color: #fff;
@@ -8049,9 +8033,6 @@ app.get('/', requireAuth, (req, res) => {
                 <div class="user-name" id="userName">Cargando...</div>
                 <div class="user-position" id="userPosition">Cargo no definido</div>
               </div>
-              <button class="logout-btn" onclick="logout()" title="Cerrar sesión">
-                🚪
-              </button>
             </div>
           </div>
           <nav class="nav-menu">
@@ -8440,6 +8421,90 @@ app.get('/', requireAuth, (req, res) => {
                       </div>
                     </div>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Profile Tab -->
+          <div id="profile-tab" class="tab-content" style="display: none;">
+            <div class="content-header glassmorphism-header">
+              <h2>👤 Mi Perfil</h2>
+              <p>Gestiona tu información personal y configuraciones</p>
+            </div>
+            
+            <div class="profile-container">
+              <div class="profile-main">
+                <!-- Profile Photo Section -->
+                <div class="profile-photo-section">
+                  <div class="photo-container">
+                    <img id="profilePhotoPreview" src="/api/placeholder-avatar" alt="Foto de perfil" class="profile-photo">
+                    <div class="photo-overlay">
+                      <button class="change-photo-btn" onclick="document.getElementById('profilePhotoInput').click()">
+                        📷 Cambiar Foto
+                      </button>
+                    </div>
+                  </div>
+                  <input type="file" id="profilePhotoInput" accept="image/*" style="display: none;" onchange="handleProfilePhotoChange(event)">
+                </div>
+
+                <!-- Profile Form -->
+                <div class="profile-form-section">
+                  <form id="profileForm" onsubmit="saveProfile(event)">
+                    <div class="form-grid">
+                      <div class="form-group">
+                        <label for="firstName">Nombre *</label>
+                        <input type="text" id="firstName" name="firstName" required class="form-control" placeholder="Tu nombre">
+                      </div>
+                      
+                      <div class="form-group">
+                        <label for="lastName">Apellido *</label>
+                        <input type="text" id="lastName" name="lastName" required class="form-control" placeholder="Tu apellido">
+                      </div>
+                      
+                      <div class="form-group">
+                        <label for="position">Cargo</label>
+                        <input type="text" id="position" name="position" class="form-control" placeholder="Ej: Desarrollador Senior">
+                      </div>
+                      
+                      <div class="form-group">
+                        <label for="department">Departamento</label>
+                        <select id="department" name="department" class="form-control">
+                          <option value="">Seleccionar departamento</option>
+                          <option value="Desarrollo">Desarrollo</option>
+                          <option value="Marketing">Marketing</option>
+                          <option value="Ventas">Ventas</option>
+                          <option value="Diseño">Diseño</option>
+                          <option value="Administración">Administración</option>
+                          <option value="Gerencia">Gerencia</option>
+                        </select>
+                      </div>
+                      
+                      <div class="form-group">
+                        <label for="phone">Teléfono</label>
+                        <input type="tel" id="phone" name="phone" class="form-control" placeholder="+56 9 1234 5678">
+                      </div>
+                      
+                      <div class="form-group">
+                        <label for="email">Email</label>
+                        <input type="email" id="email" name="email" class="form-control" readonly placeholder="tu@intothecom.com">
+                      </div>
+                    </div>
+                    
+                    <div class="form-group">
+                      <label for="bio">Descripción personal</label>
+                      <textarea id="bio" name="bio" class="form-control" rows="3" placeholder="Cuéntanos un poco sobre ti..."></textarea>
+                    </div>
+                    
+                    <div class="form-actions">
+                      <button type="submit" class="btn btn-primary">
+                        💾 Guardar Perfil
+                      </button>
+                      <button type="button" class="btn btn-secondary" onclick="loadProfile()">
+                        🔄 Recargar
+                      </button>
+                    </div>
+                  </form>
                 </div>
               </div>
             </div>
@@ -14211,91 +14276,6 @@ app.get('/', requireAuth, (req, res) => {
         });
         
       </script>
-      
-      <!-- Profile Tab -->
-      <div id="profile-tab" class="tab-content" style="display: none;">
-        <div class="content-header glassmorphism-header">
-          <h2>👤 Mi Perfil</h2>
-          <p>Gestiona tu información personal y configuraciones</p>
-        </div>
-        
-        <div class="profile-container">
-          <div class="profile-main">
-            <!-- Profile Photo Section -->
-            <div class="profile-photo-section">
-              <div class="photo-container">
-                <img id="profilePhotoPreview" src="/api/placeholder-avatar" alt="Foto de perfil" class="profile-photo">
-                <div class="photo-overlay">
-                  <button class="change-photo-btn" onclick="document.getElementById('profilePhotoInput').click()">
-                    📷 Cambiar Foto
-                  </button>
-                </div>
-              </div>
-              <input type="file" id="profilePhotoInput" accept="image/*" style="display: none;" onchange="handleProfilePhotoChange(event)">
-            </div>
-
-            <!-- Profile Form -->
-            <div class="profile-form-section">
-              <form id="profileForm" onsubmit="saveProfile(event)">
-                <div class="form-grid">
-                  <div class="form-group">
-                    <label for="firstName">Nombre *</label>
-                    <input type="text" id="firstName" name="firstName" required class="form-control" placeholder="Tu nombre">
-                  </div>
-                  
-                  <div class="form-group">
-                    <label for="lastName">Apellido *</label>
-                    <input type="text" id="lastName" name="lastName" required class="form-control" placeholder="Tu apellido">
-                  </div>
-                  
-                  <div class="form-group">
-                    <label for="position">Cargo</label>
-                    <input type="text" id="position" name="position" class="form-control" placeholder="Ej: Desarrollador Senior">
-                  </div>
-                  
-                  <div class="form-group">
-                    <label for="department">Departamento</label>
-                    <select id="department" name="department" class="form-control">
-                      <option value="">Seleccionar departamento</option>
-                      <option value="Desarrollo">Desarrollo</option>
-                      <option value="Marketing">Marketing</option>
-                      <option value="Ventas">Ventas</option>
-                      <option value="Diseño">Diseño</option>
-                      <option value="Administración">Administración</option>
-                      <option value="Gerencia">Gerencia</option>
-                    </select>
-                  </div>
-                  
-                  <div class="form-group">
-                    <label for="phone">Teléfono</label>
-                    <input type="tel" id="phone" name="phone" class="form-control" placeholder="+56 9 1234 5678">
-                  </div>
-                  
-                  <div class="form-group">
-                    <label for="email">Email</label>
-                    <input type="email" id="email" name="email" class="form-control" readonly placeholder="tu@intothecom.com">
-                  </div>
-                </div>
-                
-                <div class="form-group">
-                  <label for="bio">Descripción personal</label>
-                  <textarea id="bio" name="bio" class="form-control" rows="3" placeholder="Cuéntanos un poco sobre ti..."></textarea>
-                </div>
-                
-                <div class="form-actions">
-                  <button type="submit" class="btn btn-primary">
-                    💾 Guardar Perfil
-                  </button>
-                  <button type="button" class="btn btn-secondary" onclick="loadProfile()">
-                    🔄 Recargar
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      </div>
-      
       <!-- Modal para crear nueva reunión -->
       <div id="createEventModal" class="modal" style="display: none;">
         <div class="modal-content">
