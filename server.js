@@ -943,7 +943,9 @@ app.get('/api/contacts', async (req, res) => {
       LEFT JOIN contact_tag_history th ON c.id = th.contact_id AND th.tag_name = 'propuesta enviada'
       ${whereClause}
       ORDER BY 
-        CASE WHEN c.tags @> ARRAY['propuesta enviada']::text[] THEN days_since_proposal END DESC NULLS LAST,
+        CASE WHEN c.tags @> ARRAY['propuesta enviada']::text[] THEN 
+          EXTRACT(days FROM NOW() - COALESCE(th.assigned_at, c.updated_at))::integer 
+        END DESC NULLS LAST,
         c.created_at DESC
     `);
     
