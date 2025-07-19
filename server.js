@@ -12648,7 +12648,7 @@ app.get('/', (req, res) => {
                 } else {
                   // Generate initials avatar
                   const initials = getProfileInitials(profile);
-                  photoPreview.src = `https://ui-avatars.com/api/?name=${initials}&background=3b82f6&color=ffffff&size=120`;
+                  photoPreview.src = 'https://ui-avatars.com/api/?name=' + initials + '&background=3b82f6&color=ffffff&size=120';
                 }
               }
             })
@@ -13651,7 +13651,7 @@ app.post('/api/profile', async (req, res) => {
     }
 
     const { firstName, lastName, position, department, phone, bio } = req.body;
-    const fullName = `${firstName} ${lastName}`.trim();
+    const fullName = (firstName + ' ' + lastName).trim();
 
     // Upsert profile
     const result = await pool.query(`
@@ -13724,7 +13724,7 @@ app.post('/api/profile/photo', upload.single('photo'), async (req, res) => {
       }
     }
 
-    const photoUrl = `/uploads/${req.file.filename}`;
+    const photoUrl = '/uploads/' + req.file.filename;
 
     // Update profile with photo
     await pool.query(`
