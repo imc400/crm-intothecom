@@ -12555,10 +12555,9 @@ app.get('/', (req, res) => {
               channelItem.classList.add('active');
             }
             
-            channelItem.innerHTML = `
-              <span class="channel-hash">#</span>
-              <span class="channel-name">${channel.name}</span>
-            `;
+            channelItem.innerHTML = 
+              '<span class="channel-hash">#</span>' +
+              '<span class="channel-name">' + channel.name + '</span>';
             
             channelItem.addEventListener('click', () => {
               switchChannel(channel);
@@ -12583,7 +12582,7 @@ app.get('/', (req, res) => {
           // Update input placeholder
           const input = document.getElementById('chatMessageInput');
           if (input) {
-            input.placeholder = `Escribe un mensaje en #${channel.name}...`;
+            input.placeholder = 'Escribe un mensaje en #' + channel.name + '...';
           }
         }
         
@@ -12593,7 +12592,7 @@ app.get('/', (req, res) => {
           const descEl = document.getElementById('currentChannelDescription');
           
           if (nameEl) {
-            nameEl.textContent = `# ${currentChannel.name}`;
+            nameEl.textContent = '# ' + currentChannel.name;
           }
           
           if (descEl) {
@@ -12605,7 +12604,7 @@ app.get('/', (req, res) => {
         // Load messages for a channel
         async function loadMessages(channelId) {
           try {
-            const response = await fetch(`/api/chat/channels/${channelId}/messages`);
+            const response = await fetch('/api/chat/channels/' + channelId + '/messages');
             const data = await response.json();
             
             if (data.success) {
@@ -12623,11 +12622,10 @@ app.get('/', (req, res) => {
           const messagesContainer = document.getElementById('chatMessages');
           if (!messagesContainer) return;
           
-          messagesContainer.innerHTML = `
-            <div class="message-day-separator">
-              <span>Hoy</span>
-            </div>
-          `;
+          messagesContainer.innerHTML = 
+            '<div class="message-day-separator">' +
+              '<span>Hoy</span>' +
+            '</div>';
           
           messages.forEach(message => {
             displayMessage(message, false);
@@ -12649,18 +12647,17 @@ app.get('/', (req, res) => {
             minute: '2-digit' 
           });
           
-          messageEl.innerHTML = `
-            <div class="message-avatar">
-              ${getUserInitials(message.user_name)}
-            </div>
-            <div class="message-content">
-              <div class="message-header">
-                <span class="message-author">${message.user_name}</span>
-                <span class="message-timestamp">${timeString}</span>
-              </div>
-              <div class="message-text">${escapeHtml(message.message_text)}</div>
-            </div>
-          `;
+          messageEl.innerHTML = 
+            '<div class="message-avatar">' +
+              getUserInitials(message.user_name) +
+            '</div>' +
+            '<div class="message-content">' +
+              '<div class="message-header">' +
+                '<span class="message-author">' + message.user_name + '</span>' +
+                '<span class="message-timestamp">' + timeString + '</span>' +
+              '</div>' +
+              '<div class="message-text">' + escapeHtml(message.message_text) + '</div>' +
+            '</div>';
           
           if (isNew) {
             messagesContainer.appendChild(messageEl);
@@ -12712,7 +12709,7 @@ app.get('/', (req, res) => {
         // Join a channel
         async function joinChannel(channelId) {
           try {
-            await fetch(`/api/chat/channels/${channelId}/join`, {
+            await fetch('/api/chat/channels/' + channelId + '/join', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
