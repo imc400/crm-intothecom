@@ -5,10 +5,19 @@ const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const http = require('http');
+const socketIo = require('socket.io');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+const server = http.createServer(app);
+const io = socketIo(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
 // Middleware
 app.use(cors());
@@ -376,6 +385,71 @@ async function initDatabase() {
     console.log('Migrating existing financial data...');
     await migrateFinancialData();
     
+    // Create chat system tables
+    console.log('Creating chat system tables...');
+    
+    // Chat channels table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS chat_channels (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL UNIQUE,
+        description TEXT,
+        is_private BOOLEAN DEFAULT FALSE,
+        created_by VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Chat messages table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id SERIAL PRIMARY KEY,
+        channel_id INTEGER REFERENCES chat_channels(id) ON DELETE CASCADE,
+        user_email VARCHAR(255) NOT NULL,
+        user_name VARCHAR(255) NOT NULL,
+        message_text TEXT,
+        message_type VARCHAR(20) DEFAULT 'text',
+        file_url VARCHAR(500),
+        file_name VARCHAR(255),
+        file_size INTEGER,
+        reply_to INTEGER REFERENCES chat_messages(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_edited BOOLEAN DEFAULT FALSE,
+        is_deleted BOOLEAN DEFAULT FALSE
+      )
+    `);
+    
+    // Chat channel members table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS chat_members (
+        id SERIAL PRIMARY KEY,
+        channel_id INTEGER REFERENCES chat_channels(id) ON DELETE CASCADE,
+        user_email VARCHAR(255) NOT NULL,
+        user_name VARCHAR(255) NOT NULL,
+        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_admin BOOLEAN DEFAULT FALSE,
+        UNIQUE(channel_id, user_email)
+      )
+    `);
+    
+    // Create default channels
+    try {
+      await pool.query(`
+        INSERT INTO chat_channels (name, description, created_by) 
+        VALUES 
+          ('general', 'Canal general para toda la empresa', 'system'),
+          ('proyectos', 'Discusión sobre proyectos actuales', 'system'),
+          ('random', 'Conversaciones casuales y off-topic', 'system')
+        ON CONFLICT (name) DO NOTHING
+      `);
+      console.log('✅ Default chat channels created');
+    } catch (error) {
+      console.log('Default channels already exist or error:', error.message);
+    }
+    
+    console.log('Chat system tables created successfully');
     console.log('Database initialized successfully');
     
     // Force check contact_attachments table
@@ -6637,6 +6711,10 @@ app.get('/', (req, res) => {
               <span class="nav-icon">$</span>
               <span>Finanzas</span>
             </a>
+            <a href="#" class="nav-item" data-tab="chat">
+              <span class="nav-icon">💬</span>
+              <span>Chat</span>
+            </a>
           </nav>
         </div>
         
@@ -12096,10 +12174,63 @@ app.get('/', (req, res) => {
   `);
 });
 
+// Socket.io chat functionality
+io.on('connection', (socket) => {
+  console.log('👤 User connected to chat:', socket.id);
+  
+  // Join user to chat room
+  socket.on('join-chat', (userData) => {
+    socket.userData = userData;
+    socket.join('chat-room');
+    socket.broadcast.to('chat-room').emit('user-joined', userData);
+    console.log('👤 User joined chat:', userData.email);
+  });
+  
+  // Handle new chat message
+  socket.on('new-message', async (messageData) => {
+    try {
+      // Save message to database
+      const result = await pool.query(`
+        INSERT INTO chat_messages (channel_id, user_email, user_name, message_text, message_type)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING id, created_at
+      `, [
+        messageData.channelId,
+        messageData.userEmail,
+        messageData.userName,
+        messageData.text,
+        messageData.type || 'text'
+      ]);
+      
+      const savedMessage = {
+        ...messageData,
+        id: result.rows[0].id,
+        created_at: result.rows[0].created_at
+      };
+      
+      // Broadcast message to all users in the channel
+      io.to('chat-room').emit('message-received', savedMessage);
+      
+    } catch (error) {
+      console.error('Error saving message:', error);
+      socket.emit('message-error', { error: 'Failed to send message' });
+    }
+  });
+  
+  // Handle user disconnect
+  socket.on('disconnect', () => {
+    if (socket.userData) {
+      socket.broadcast.to('chat-room').emit('user-left', socket.userData);
+      console.log('👤 User disconnected from chat:', socket.userData.email);
+    }
+  });
+});
+
 // Start server
-app.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log('🚀 CRM Server running on port ' + PORT);
   console.log('📱 Web interface: http://localhost:' + PORT);
+  console.log('💬 Chat WebSocket enabled');
   console.log('🔗 API endpoints:');
   console.log('   GET  /api/contacts - Get all contacts');
   console.log('   GET  /api/contacts/new - Get new contacts');
