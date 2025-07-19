@@ -41,6 +41,7 @@ app.use(cors({
 app.use(express.json());
 
 // Session configuration for multi-user authentication
+const isProduction = process.env.NODE_ENV === 'production';
 app.use(session({
   store: new pgSession({
     pool: pool,
@@ -50,11 +51,12 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   rolling: true,
+  name: 'sessionId', // Custom session name
   cookie: {
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax'
+    secure: isProduction ? 'auto' : false, // Auto-detect HTTPS in production
+    sameSite: isProduction ? 'lax' : 'lax' // Lax for same-site requests
   }
 }));
 
@@ -693,7 +695,9 @@ function requireAuth(req, res, next) {
     sessionId: req.sessionID,
     hasUser: !!req.session?.user,
     userEmail: req.session?.user?.email,
-    url: req.url
+    url: req.url,
+    cookies: req.headers.cookie ? 'present' : 'missing',
+    userAgent: req.headers['user-agent']?.substring(0, 50) + '...'
   });
   
   if (req.session && req.session.user) {
@@ -3120,7 +3124,18 @@ app.get('/api/auth/google/callback', async (req, res) => {
         });
       }
       
-      console.log('✅ Session saved successfully, redirecting...');
+      console.log('✅ Session saved successfully');
+      console.log('🍪 Cookie headers being set:', {
+        sessionId: req.sessionID,
+        cookieName: 'sessionId',
+        cookieConfig: {
+          maxAge: 24 * 60 * 60 * 1000,
+          httpOnly: true,
+          secure: isProduction ? 'auto' : false,
+          sameSite: 'lax'
+        }
+      });
+      
       // Redirect to main app
       res.redirect('/?login=success');
     });
@@ -3145,7 +3160,7 @@ app.post('/api/auth/logout', (req, res) => {
       });
     }
     
-    res.clearCookie('connect.sid');
+    res.clearCookie('sessionId');
     res.json({
       success: true,
       message: 'Logged out successfully'
