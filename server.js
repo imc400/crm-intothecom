@@ -450,6 +450,32 @@ async function initDatabase() {
     }
     
     console.log('Chat system tables created successfully');
+    
+    // Create user profiles table
+    console.log('Creating user_profiles table...');
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS user_profiles (
+          id SERIAL PRIMARY KEY,
+          email VARCHAR(255) UNIQUE NOT NULL,
+          first_name VARCHAR(100),
+          last_name VARCHAR(100),
+          full_name VARCHAR(200),
+          position VARCHAR(150),
+          department VARCHAR(100),
+          phone VARCHAR(20),
+          bio TEXT,
+          profile_image_url TEXT,
+          profile_image_filename VARCHAR(255),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('✅ user_profiles table created successfully');
+    } catch (error) {
+      console.log('user_profiles table creation error:', error.message);
+    }
+    
     console.log('Database initialized successfully');
     
     // Force check contact_attachments table
@@ -6684,6 +6710,148 @@ app.get('/', (req, res) => {
         
         
         /* ========================
+           PROFILE SYSTEM STYLES
+        ======================== */
+        
+        .profile-container {
+          max-width: 800px;
+          margin: 0 auto;
+          padding: 20px;
+        }
+        
+        .profile-main {
+          background: var(--bg-secondary);
+          border-radius: 16px;
+          padding: 30px;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+        }
+        
+        .profile-photo-section {
+          display: flex;
+          justify-content: center;
+          margin-bottom: 30px;
+        }
+        
+        .photo-container {
+          position: relative;
+          width: 120px;
+          height: 120px;
+          border-radius: 50%;
+          overflow: hidden;
+          cursor: pointer;
+          transition: transform 0.2s ease;
+        }
+        
+        .photo-container:hover {
+          transform: scale(1.05);
+        }
+        
+        .profile-photo {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          border-radius: 50%;
+        }
+        
+        .photo-overlay {
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background: rgba(0, 0, 0, 0.6);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          opacity: 0;
+          transition: opacity 0.2s ease;
+          border-radius: 50%;
+        }
+        
+        .photo-container:hover .photo-overlay {
+          opacity: 1;
+        }
+        
+        .change-photo-btn {
+          background: transparent;
+          border: none;
+          color: white;
+          font-size: 12px;
+          cursor: pointer;
+          text-align: center;
+        }
+        
+        .profile-form-section {
+          width: 100%;
+        }
+        
+        .form-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+          margin-bottom: 20px;
+        }
+        
+        .form-group {
+          display: flex;
+          flex-direction: column;
+        }
+        
+        .form-group label {
+          font-weight: 600;
+          margin-bottom: 8px;
+          color: var(--text-primary);
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+          padding: 12px;
+          border: 2px solid var(--border-light);
+          border-radius: 8px;
+          font-size: 14px;
+          transition: all 0.2s ease;
+          background: var(--bg-primary);
+          color: var(--text-primary);
+        }
+        
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+          outline: none;
+          border-color: var(--primary-color);
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        
+        .form-group input[readonly] {
+          background: var(--bg-tertiary);
+          color: var(--text-secondary);
+        }
+        
+        .form-actions {
+          display: flex;
+          gap: 12px;
+          justify-content: flex-end;
+          margin-top: 30px;
+          padding-top: 20px;
+          border-top: 1px solid var(--border-light);
+        }
+        
+        @media (max-width: 768px) {
+          .form-grid {
+            grid-template-columns: 1fr;
+          }
+          
+          .form-actions {
+            justify-content: stretch;
+          }
+          
+          .form-actions .btn {
+            flex: 1;
+          }
+        }
+        
+        /* ========================
            CHAT SYSTEM STYLES
         ======================== */
         
@@ -6906,6 +7074,20 @@ app.get('/', (req, res) => {
           font-size: 18px;
           margin-right: 12px;
           flex-shrink: 0;
+          overflow: hidden;
+        }
+        
+        .avatar-image {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          border-radius: 50%;
+        }
+        
+        .avatar-initials {
+          color: white;
+          font-weight: 600;
+          font-size: 14px;
         }
         
         .message-content {
@@ -7092,6 +7274,10 @@ app.get('/', (req, res) => {
             <a href="#" class="nav-item" data-tab="chat">
               <span class="nav-icon">💬</span>
               <span>Chat</span>
+            </a>
+            <a href="#" class="nav-item" data-tab="profile">
+              <span class="nav-icon">👤</span>
+              <span>Mi Perfil</span>
             </a>
           </nav>
         </div>
@@ -12435,6 +12621,154 @@ app.get('/', (req, res) => {
         }
         
         // ===================================
+        // PROFILE SYSTEM JAVASCRIPT
+        // ===================================
+        
+        // Load user profile when profile tab is opened
+        function loadProfile() {
+          fetch('/api/profile')
+            .then(response => response.json())
+            .then(data => {
+              if (data.success) {
+                const profile = data.profile;
+                
+                // Fill form fields
+                document.getElementById('firstName').value = profile.first_name || '';
+                document.getElementById('lastName').value = profile.last_name || '';
+                document.getElementById('position').value = profile.position || '';
+                document.getElementById('department').value = profile.department || '';
+                document.getElementById('phone').value = profile.phone || '';
+                document.getElementById('email').value = profile.email || '';
+                document.getElementById('bio').value = profile.bio || '';
+                
+                // Update profile photo
+                const photoPreview = document.getElementById('profilePhotoPreview');
+                if (profile.profile_image_url) {
+                  photoPreview.src = profile.profile_image_url;
+                } else {
+                  // Generate initials avatar
+                  const initials = getProfileInitials(profile);
+                  photoPreview.src = `https://ui-avatars.com/api/?name=${initials}&background=3b82f6&color=ffffff&size=120`;
+                }
+              }
+            })
+            .catch(error => {
+              console.error('Error loading profile:', error);
+              alert('Error loading profile');
+            });
+        }
+        
+        // Get initials from profile
+        function getProfileInitials(profile) {
+          if (profile.first_name && profile.last_name) {
+            return profile.first_name.charAt(0) + profile.last_name.charAt(0);
+          } else if (profile.full_name) {
+            const names = profile.full_name.split(' ');
+            return names.length > 1 ? names[0].charAt(0) + names[names.length - 1].charAt(0) : names[0].charAt(0);
+          } else if (profile.email) {
+            return profile.email.charAt(0).toUpperCase();
+          }
+          return 'U';
+        }
+        
+        // Save profile form
+        function saveProfile(event) {
+          event.preventDefault();
+          
+          const formData = new FormData(event.target);
+          const profileData = {
+            firstName: formData.get('firstName'),
+            lastName: formData.get('lastName'),
+            position: formData.get('position'),
+            department: formData.get('department'),
+            phone: formData.get('phone'),
+            bio: formData.get('bio')
+          };
+          
+          fetch('/api/profile', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(profileData)
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.success) {
+              alert('✅ Perfil guardado exitosamente');
+              loadProfile(); // Reload to show updated data
+            } else {
+              alert('❌ Error: ' + data.error);
+            }
+          })
+          .catch(error => {
+            console.error('Error saving profile:', error);
+            alert('❌ Error saving profile');
+          });
+        }
+        
+        // Handle profile photo change
+        function handleProfilePhotoChange(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+          
+          // Validate file type
+          if (!file.type.startsWith('image/')) {
+            alert('❌ Please select an image file');
+            return;
+          }
+          
+          // Validate file size (max 5MB)
+          if (file.size > 5 * 1024 * 1024) {
+            alert('❌ Image too large. Please select an image smaller than 5MB');
+            return;
+          }
+          
+          // Create preview
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            document.getElementById('profilePhotoPreview').src = e.target.result;
+          };
+          reader.readAsDataURL(file);
+          
+          // Upload photo
+          const formData = new FormData();
+          formData.append('photo', file);
+          
+          fetch('/api/profile/photo', {
+            method: 'POST',
+            body: formData
+          })
+          .then(response => response.json())
+          .then(data => {
+            if (data.success) {
+              alert('✅ Foto de perfil actualizada');
+            } else {
+              alert('❌ Error: ' + data.error);
+            }
+          })
+          .catch(error => {
+            console.error('Error uploading photo:', error);
+            alert('❌ Error uploading photo');
+          });
+        }
+        
+        // Initialize profile when tab is opened
+        function initializeProfileTab() {
+          loadProfile();
+        }
+        
+        // Add profile tab listener
+        document.addEventListener('DOMContentLoaded', function() {
+          const profileTab = document.querySelector('[data-tab="profile"]');
+          if (profileTab) {
+            profileTab.addEventListener('click', function() {
+              setTimeout(initializeProfileTab, 100);
+            });
+          }
+        });
+        
+        // ===================================
         // CHAT SYSTEM JAVASCRIPT
         // ===================================
         
@@ -12500,48 +12834,64 @@ app.get('/', (req, res) => {
           });
         }
         
-        // Get current user info from Google Auth
+        // Get current user info with profile integration
         async function getCurrentUser() {
           try {
-            // Try to get user info from Google Auth API
-            const response = await fetch('/api/auth/status');
-            const authData = await response.json();
+            // Get user profile from our profile API
+            const profileResponse = await fetch('/api/profile');
+            const profileData = await profileResponse.json();
             
-            console.log('🔍 Auth data received:', authData);
-            
-            if (authData.success && authData.authenticated) {
-              // Get user profile from Google
-              try {
-                const profileResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-                  headers: {
-                    'Authorization': 'Bearer ' + authData.accessToken
+            if (profileData.success && profileData.profile) {
+              const profile = profileData.profile;
+              
+              // Use full profile information
+              currentUser = {
+                email: profile.email,
+                name: profile.full_name || (profile.first_name + ' ' + profile.last_name).trim() || profile.email.split('@')[0],
+                firstName: profile.first_name,
+                lastName: profile.last_name,
+                position: profile.position,
+                profileImage: profile.profile_image_url
+              };
+              
+              // Cache the profile for avatar usage
+              userProfileCache.set(profile.email, profile);
+              
+              console.log('✅ Got user profile for chat:', currentUser);
+            } else {
+              // Fallback to Google Auth
+              const authResponse = await fetch('/api/auth/status');
+              const authData = await authResponse.json();
+              
+              if (authData.success && authData.authenticated && authData.accessToken) {
+                try {
+                  const googleResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                    headers: {
+                      'Authorization': 'Bearer ' + authData.accessToken
+                    }
+                  });
+                  
+                  if (googleResponse.ok) {
+                    const googleProfile = await googleResponse.json();
+                    currentUser = {
+                      email: googleProfile.email,
+                      name: googleProfile.name || googleProfile.email.split('@')[0],
+                      profileImage: null
+                    };
                   }
-                });
-                
-                if (profileResponse.ok) {
-                  const profile = await profileResponse.json();
-                  currentUser = {
-                    email: profile.email,
-                    name: profile.name || profile.email.split('@')[0]
-                  };
-                  console.log('✅ Got Google profile:', currentUser);
-                } else {
-                  throw new Error('Failed to get profile');
+                } catch (googleError) {
+                  console.warn('Could not get Google profile:', googleError);
                 }
-              } catch (profileError) {
-                console.warn('Could not get Google profile, using fallback:', profileError);
-                // Fallback to a generic user
+              }
+              
+              // Final fallback
+              if (!currentUser.email) {
                 currentUser = {
                   email: 'usuario@intothecom.com',
-                  name: 'Usuario IntoTheCom'
+                  name: 'Usuario IntoTheCom',
+                  profileImage: null
                 };
               }
-            } else {
-              // Not authenticated, use fallback
-              currentUser = {
-                email: 'usuario@intothecom.com',
-                name: 'Usuario IntoTheCom'
-              };
             }
             
             console.log('📧 Current chat user:', currentUser);
@@ -12695,13 +13045,16 @@ app.get('/', (req, res) => {
             minute: '2-digit' 
           });
           
+          // Get user avatar - either profile image or initials
+          const avatarContent = getUserAvatar(message.user_email, message.user_name);
+          
           messageEl.innerHTML = 
             '<div class="message-avatar">' +
-              getUserInitials(message.user_name) +
+              avatarContent +
             '</div>' +
             '<div class="message-content">' +
               '<div class="message-header">' +
-                '<span class="message-author">' + message.user_name + '</span>' +
+                '<span class="message-author">' + escapeHtml(message.user_name) + '</span>' +
                 '<span class="message-timestamp">' + timeString + '</span>' +
               '</div>' +
               '<div class="message-text">' + escapeHtml(message.message_text) + '</div>' +
@@ -12810,6 +13163,48 @@ app.get('/', (req, res) => {
           return name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
         }
         
+        // Cache for user profiles to avoid repeated API calls
+        const userProfileCache = new Map();
+        
+        // Get user avatar - profile image or initials
+        function getUserAvatar(userEmail, userName) {
+          // Check if we already have this user's info cached
+          if (userProfileCache.has(userEmail)) {
+            const cachedProfile = userProfileCache.get(userEmail);
+            if (cachedProfile.profile_image_url) {
+              return '<img src="' + cachedProfile.profile_image_url + '" alt="' + userName + '" class="avatar-image">';
+            } else {
+              const initials = getUserInitials(cachedProfile.full_name || userName);
+              return '<span class="avatar-initials">' + initials + '</span>';
+            }
+          }
+          
+          // For current user, use the already loaded profile
+          if (userEmail === currentUser.email && currentUser.profileImage) {
+            return '<img src="' + currentUser.profileImage + '" alt="' + userName + '" class="avatar-image">';
+          }
+          
+          // Return initials as fallback
+          const initials = getUserInitials(userName);
+          return '<span class="avatar-initials">' + initials + '</span>';
+        }
+        
+        // Load user profile for avatar (async)
+        async function loadUserProfile(userEmail) {
+          if (userProfileCache.has(userEmail)) {
+            return userProfileCache.get(userEmail);
+          }
+          
+          try {
+            // This would need a different endpoint to get any user's profile
+            // For now, we'll use initials
+            return null;
+          } catch (error) {
+            console.error('Error loading user profile:', error);
+            return null;
+          }
+        }
+        
         function escapeHtml(text) {
           const div = document.createElement('div');
           div.textContent = text;
@@ -12867,6 +13262,90 @@ app.get('/', (req, res) => {
         });
         
       </script>
+      
+      <!-- Profile Tab -->
+      <div id="profile-tab" class="tab-content" style="display: none;">
+        <div class="content-header">
+          <h2>Mi Perfil</h2>
+          <p>Gestiona tu información personal y configuraciones</p>
+        </div>
+        
+        <div class="profile-container">
+          <div class="profile-main">
+            <!-- Profile Photo Section -->
+            <div class="profile-photo-section">
+              <div class="photo-container">
+                <img id="profilePhotoPreview" src="/api/placeholder-avatar" alt="Foto de perfil" class="profile-photo">
+                <div class="photo-overlay">
+                  <button class="change-photo-btn" onclick="document.getElementById('profilePhotoInput').click()">
+                    📷 Cambiar Foto
+                  </button>
+                </div>
+              </div>
+              <input type="file" id="profilePhotoInput" accept="image/*" style="display: none;" onchange="handleProfilePhotoChange(event)">
+            </div>
+
+            <!-- Profile Form -->
+            <div class="profile-form-section">
+              <form id="profileForm" onsubmit="saveProfile(event)">
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label for="firstName">Nombre *</label>
+                    <input type="text" id="firstName" name="firstName" required class="form-control" placeholder="Tu nombre">
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="lastName">Apellido *</label>
+                    <input type="text" id="lastName" name="lastName" required class="form-control" placeholder="Tu apellido">
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="position">Cargo</label>
+                    <input type="text" id="position" name="position" class="form-control" placeholder="Ej: Desarrollador Senior">
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="department">Departamento</label>
+                    <select id="department" name="department" class="form-control">
+                      <option value="">Seleccionar departamento</option>
+                      <option value="Desarrollo">Desarrollo</option>
+                      <option value="Marketing">Marketing</option>
+                      <option value="Ventas">Ventas</option>
+                      <option value="Diseño">Diseño</option>
+                      <option value="Administración">Administración</option>
+                      <option value="Gerencia">Gerencia</option>
+                    </select>
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="phone">Teléfono</label>
+                    <input type="tel" id="phone" name="phone" class="form-control" placeholder="+56 9 1234 5678">
+                  </div>
+                  
+                  <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" class="form-control" readonly placeholder="tu@intothecom.com">
+                  </div>
+                </div>
+                
+                <div class="form-group">
+                  <label for="bio">Descripción personal</label>
+                  <textarea id="bio" name="bio" class="form-control" rows="3" placeholder="Cuéntanos un poco sobre ti..."></textarea>
+                </div>
+                
+                <div class="form-actions">
+                  <button type="submit" class="btn btn-primary">
+                    💾 Guardar Perfil
+                  </button>
+                  <button type="button" class="btn btn-secondary" onclick="loadProfile()">
+                    🔄 Recargar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
       
       <!-- Modal para crear nueva reunión -->
       <div id="createEventModal" class="modal" style="display: none;">
@@ -13062,6 +13541,219 @@ app.get('/', (req, res) => {
     </body>
     </html>
   `);
+});
+
+// ===================================
+// PROFILE API ENDPOINTS
+// ===================================
+
+// Get user profile
+app.get('/api/profile', async (req, res) => {
+  try {
+    // Get user email from authentication
+    const authResponse = await fetch(`${req.protocol}://${req.get('host')}/api/auth/status`);
+    const authData = await authResponse.json();
+    
+    if (!authData.success || !authData.authenticated) {
+      return res.status(401).json({
+        success: false,
+        error: 'User not authenticated'
+      });
+    }
+
+    // Get user profile from Google if available
+    let userEmail = 'usuario@intothecom.com';
+    if (authData.accessToken) {
+      try {
+        const profileResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: {
+            'Authorization': 'Bearer ' + authData.accessToken
+          }
+        });
+        
+        if (profileResponse.ok) {
+          const googleProfile = await profileResponse.json();
+          userEmail = googleProfile.email;
+        }
+      } catch (googleError) {
+        console.warn('Could not get Google profile:', googleError);
+      }
+    }
+
+    // Get profile from database
+    const result = await pool.query(
+      'SELECT * FROM user_profiles WHERE email = $1',
+      [userEmail]
+    );
+
+    if (result.rows.length > 0) {
+      res.json({
+        success: true,
+        profile: result.rows[0]
+      });
+    } else {
+      // Return default profile
+      res.json({
+        success: true,
+        profile: {
+          email: userEmail,
+          first_name: '',
+          last_name: '',
+          full_name: '',
+          position: '',
+          department: '',
+          phone: '',
+          bio: '',
+          profile_image_url: null
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error getting profile:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Server error'
+    });
+  }
+});
+
+// Save user profile
+app.post('/api/profile', async (req, res) => {
+  try {
+    // Get user email from authentication
+    const authResponse = await fetch(`${req.protocol}://${req.get('host')}/api/auth/status`);
+    const authData = await authResponse.json();
+    
+    if (!authData.success || !authData.authenticated) {
+      return res.status(401).json({
+        success: false,
+        error: 'User not authenticated'
+      });
+    }
+
+    // Get user profile from Google if available
+    let userEmail = 'usuario@intothecom.com';
+    if (authData.accessToken) {
+      try {
+        const profileResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: {
+            'Authorization': 'Bearer ' + authData.accessToken
+          }
+        });
+        
+        if (profileResponse.ok) {
+          const googleProfile = await profileResponse.json();
+          userEmail = googleProfile.email;
+        }
+      } catch (googleError) {
+        console.warn('Could not get Google profile:', googleError);
+      }
+    }
+
+    const { firstName, lastName, position, department, phone, bio } = req.body;
+    const fullName = `${firstName} ${lastName}`.trim();
+
+    // Upsert profile
+    const result = await pool.query(`
+      INSERT INTO user_profiles (email, first_name, last_name, full_name, position, department, phone, bio, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+      ON CONFLICT (email) 
+      DO UPDATE SET 
+        first_name = EXCLUDED.first_name,
+        last_name = EXCLUDED.last_name,
+        full_name = EXCLUDED.full_name,
+        position = EXCLUDED.position,
+        department = EXCLUDED.department,
+        phone = EXCLUDED.phone,
+        bio = EXCLUDED.bio,
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *
+    `, [userEmail, firstName, lastName, fullName, position, department, phone, bio]);
+
+    res.json({
+      success: true,
+      profile: result.rows[0],
+      message: 'Perfil guardado exitosamente'
+    });
+  } catch (error) {
+    console.error('Error saving profile:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error saving profile'
+    });
+  }
+});
+
+// Upload profile photo
+app.post('/api/profile/photo', upload.single('photo'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No photo uploaded'
+      });
+    }
+
+    // Get user email from authentication
+    const authResponse = await fetch(`${req.protocol}://${req.get('host')}/api/auth/status`);
+    const authData = await authResponse.json();
+    
+    if (!authData.success || !authData.authenticated) {
+      return res.status(401).json({
+        success: false,
+        error: 'User not authenticated'
+      });
+    }
+
+    // Get user profile from Google if available
+    let userEmail = 'usuario@intothecom.com';
+    if (authData.accessToken) {
+      try {
+        const profileResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: {
+            'Authorization': 'Bearer ' + authData.accessToken
+          }
+        });
+        
+        if (profileResponse.ok) {
+          const googleProfile = await profileResponse.json();
+          userEmail = googleProfile.email;
+        }
+      } catch (googleError) {
+        console.warn('Could not get Google profile:', googleError);
+      }
+    }
+
+    const photoUrl = `/uploads/${req.file.filename}`;
+
+    // Update profile with photo
+    await pool.query(`
+      INSERT INTO user_profiles (email, profile_image_url, profile_image_filename, updated_at)
+      VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+      ON CONFLICT (email) 
+      DO UPDATE SET 
+        profile_image_url = EXCLUDED.profile_image_url,
+        profile_image_filename = EXCLUDED.profile_image_filename,
+        updated_at = CURRENT_TIMESTAMP
+    `, [userEmail, photoUrl, req.file.filename]);
+
+    res.json({
+      success: true,
+      photoUrl: photoUrl,
+      message: 'Foto de perfil actualizada'
+    });
+  } catch (error) {
+    console.error('Error uploading profile photo:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error uploading photo'
+    });
+  }
+});
+
+// Placeholder avatar endpoint
+app.get('/api/placeholder-avatar', (req, res) => {
+  res.redirect('https://ui-avatars.com/api/?name=User&background=3b82f6&color=ffffff&size=120');
 });
 
 // ===================================
