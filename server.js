@@ -6247,6 +6247,26 @@ app.get('/', requireAuth, (req, res) => {
           background: rgba(255, 255, 255, 0.02);
         }
         
+        .empty-calendar-message {
+          text-align: center;
+          padding: 30px 20px;
+          background: rgba(59, 130, 246, 0.1);
+          border-radius: 12px;
+          margin: 20px;
+          border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+        
+        .empty-calendar-message p {
+          margin: 8px 0;
+          color: var(--text-secondary);
+        }
+        
+        .empty-calendar-message small {
+          opacity: 0.8;
+          font-style: italic;
+          color: var(--text-muted);
+        }
+        
         /* Enhanced Calendar Components */
         .calendar-controls {
           background: var(--glass-bg);
@@ -10804,8 +10824,9 @@ app.get('/', requireAuth, (req, res) => {
             })));
             
             if (events.length === 0) {
-              calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No se encontraron eventos en tu calendario</p></div>';
-              return;
+              // Show empty calendar but still functional
+              console.log('No events found, rendering empty calendar');
+              events = []; // Ensure events array is empty but calendar renders
             }
             
             if (view === 'week') {
@@ -10843,20 +10864,24 @@ app.get('/', requireAuth, (req, res) => {
               console.log('Filtered day events:', dayEvents.length);
               
               if (dayEvents.length === 0) {
-                calendarGrid.innerHTML = '<div class="auth-prompt"><h3>No hay eventos</h3><p>No tienes eventos programados para este día (' + selectedDateStr + ')</p></div>';
-                return;
+                // Show empty day message but still allow event creation
+                console.log('No events for selected day, showing empty day view');
+                calendarGrid.innerHTML = '<div class="empty-calendar-message">' +
+                                           '<p>📅 No tienes eventos programados para este día</p>' +
+                                           '<p><small>Haz clic en "Crear Evento" para programar una nueva reunión</small></p>' +
+                                         '</div>';
+              } else {
+                calendarGrid.innerHTML = dayEvents.map(event => 
+                  '<div class="event-item event-clickable" ' + safeOnclick('showEventDetails', event.id) + '>' +
+                    '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
+                    '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
+                    '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
+                    '<div class="event-actions">' +
+                      (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn" onclick="event.stopPropagation();">Unirse</a>' : '') +
+                    '</div>' +
+                  '</div>'
+                ).join('');
               }
-              
-              calendarGrid.innerHTML = dayEvents.map(event => 
-                '<div class="event-item event-clickable" ' + safeOnclick('showEventDetails', event.id) + '>' +
-                  '<div class="event-time">' + formatEventTime(event.start) + '</div>' +
-                  '<div class="event-title">' + (event.summary || 'Sin título') + '</div>' +
-                  '<div class="event-attendees">' + formatAttendees(event.attendees) + '</div>' +
-                  '<div class="event-actions">' +
-                    (event.hangoutLink ? '<a href="' + event.hangoutLink + '" target="_blank" class="event-join-btn" onclick="event.stopPropagation();">Unirse</a>' : '') +
-                  '</div>' +
-                '</div>'
-              ).join('');
             }
           } finally {
             // Always reset the flag, even if an error occurs
@@ -10944,9 +10969,18 @@ app.get('/', requireAuth, (req, res) => {
               html += '</div>';
             }
           });
-          html += '</div>';
           
-          html += '</div>';
+          // Add friendly message if no events - inside week-body
+          if (weekEvents.length === 0) {
+            html += '<div class="empty-calendar-message">' +
+                      '<p>📅 No tienes eventos programados para esta semana</p>' +
+                      '<p><small>Haz clic en cualquier horario para crear un nuevo evento</small></p>' +
+                    '</div>';
+          }
+          
+          html += '</div>'; // Close week-body
+          
+          html += '</div>'; // Close week-view
           
           // Add current time line if viewing current week
           if (isCurrentWeek) {
@@ -11041,6 +11075,20 @@ app.get('/', requireAuth, (req, res) => {
             });
             
             html += '</div>';
+          }
+          
+          // Add friendly message if no events for the current month
+          const monthEvents = events.filter(event => {
+            const eventDate = new Date(event.start.dateTime || event.start.date);
+            return eventDate.getFullYear() === currentDate.getFullYear() && 
+                   eventDate.getMonth() === currentDate.getMonth();
+          });
+          
+          if (monthEvents.length === 0) {
+            html += '<div class="empty-calendar-message month-empty">' +
+                      '<p>📅 No tienes eventos programados para este mes</p>' +
+                      '<p><small>Haz clic en cualquier día para crear un nuevo evento</small></p>' +
+                    '</div>';
           }
           
           html += '</div>';
