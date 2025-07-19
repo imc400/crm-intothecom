@@ -3264,6 +3264,48 @@ app.get('/api/auth/google/callback', async (req, res) => {
   }
 });
 
+// DEBUG: Check specific user's calendar access
+app.get('/api/debug/user/:email', requireAuth, async (req, res) => {
+  try {
+    const { email } = req.params;
+    
+    // Get user from database
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    
+    if (userResult.rows.length === 0) {
+      return res.json({
+        success: false,
+        error: 'User not found',
+        email: email
+      });
+    }
+    
+    const user = userResult.rows[0];
+    
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        hasAccessToken: !!user.access_token,
+        hasRefreshToken: !!user.refresh_token,
+        tokenExpiry: user.token_expiry,
+        lastLogin: user.last_login,
+        createdAt: user.created_at,
+        accessTokenLength: user.access_token ? user.access_token.length : 0,
+        refreshTokenLength: user.refresh_token ? user.refresh_token.length : 0
+      }
+    });
+  } catch (error) {
+    console.error('Debug user error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // DEBUG: Temporary endpoint to check OAuth configuration
 app.get('/api/auth/debug', async (req, res) => {
   try {
@@ -3516,12 +3558,28 @@ app.get('/api/calendar/events', requireAuth, async (req, res) => {
         break;
     }
     
+    console.log('📅 Making Google Calendar API call for user:', user.email);
+    console.log('🔗 Calendar API request:', {
+      calendarId: 'primary',
+      timeMin: timeMin.toISOString(),
+      timeMax: timeMax.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime'
+    });
+    
     const response = await calendar.events.list({
       calendarId: 'primary',
       timeMin: timeMin.toISOString(),
       timeMax: timeMax.toISOString(),
       singleEvents: true,
       orderBy: 'startTime',
+    });
+    
+    console.log('📊 Google Calendar API response received:', {
+      statusText: response.statusText,
+      status: response.status,
+      hasData: !!response.data,
+      itemsCount: response.data?.items?.length || 0
     });
 
     const events = response.data.items || [];
@@ -3547,7 +3605,13 @@ app.get('/api/calendar/events', requireAuth, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Calendar events error for user', user.email + ':', error.message);
+    console.error('❌ Calendar events error for user', user.email + ':', {
+      message: error.message,
+      code: error.code,
+      status: error.status,
+      stack: error.stack,
+      errorType: error.constructor.name
+    });
     
     // Handle specific authentication errors
     if (error.message.includes('invalid_grant') || error.message.includes('Invalid Credentials')) {
