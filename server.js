@@ -2989,6 +2989,145 @@ app.get('/api/auth/google/callback', async (req, res) => {
   }
 });
 
+// Logout endpoint
+app.post('/api/auth/logout', (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      console.error('Session destruction error:', err);
+      return res.status(500).json({
+        success: false,
+        error: 'Logout failed'
+      });
+    }
+    
+    res.clearCookie('connect.sid');
+    res.json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+  });
+});
+
+// Get current user session info
+app.get('/api/auth/me', (req, res) => {
+  if (req.session && req.session.user) {
+    res.json({
+      success: true,
+      user: req.session.user
+    });
+  } else {
+    res.status(401).json({
+      success: false,
+      error: 'Not authenticated',
+      needsLogin: true
+    });
+  }
+});
+
+// DEBUG: Check user tokens and OAuth client
+app.get('/api/debug/user-tokens', requireAuth, async (req, res) => {
+  try {
+    console.log('=== DEBUG USER TOKENS ===');
+    console.log('Session user:', req.user);
+    
+    // Get user from database
+    const userResult = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+    console.log('User query result:', userResult.rows.length, 'rows');
+    
+    if (userResult.rows.length === 0) {
+      return res.json({
+        success: false,
+        error: 'User not found in database',
+        sessionUser: req.user
+      });
+    }
+    
+    const user = userResult.rows[0];
+    console.log('User from DB:', {
+      id: user.id,
+      email: user.email,
+      hasAccessToken: !!user.access_token,
+      hasRefreshToken: !!user.refresh_token,
+      tokenExpiry: user.token_expiry,
+      lastLogin: user.last_login
+    });
+    
+    // Test OAuth client creation
+    const userOAuthClient = createUserOAuth2Client(user);
+    console.log('OAuth client created:', !!userOAuthClient);
+    
+    if (userOAuthClient && user.access_token) {
+      console.log('Testing Google Calendar API call...');
+      try {
+        const calendar = google.calendar({ version: 'v3', auth: userOAuthClient });
+        const testResponse = await calendar.calendarList.list({ maxResults: 1 });
+        console.log('✅ Calendar API test successful');
+        
+        res.json({
+          success: true,
+          debug: {
+            sessionUser: req.user,
+            dbUser: {
+              id: user.id,
+              email: user.email,
+              hasAccessToken: !!user.access_token,
+              hasRefreshToken: !!user.refresh_token,
+              tokenExpiry: user.token_expiry,
+              lastLogin: user.last_login
+            },
+            oauthClientCreated: !!userOAuthClient,
+            calendarApiTest: 'SUCCESS'
+          }
+        });
+      } catch (calendarError) {
+        console.error('❌ Calendar API test failed:', calendarError.message);
+        res.json({
+          success: false,
+          debug: {
+            sessionUser: req.user,
+            dbUser: {
+              id: user.id,
+              email: user.email,
+              hasAccessToken: !!user.access_token,
+              hasRefreshToken: !!user.refresh_token,
+              tokenExpiry: user.token_expiry,
+              lastLogin: user.last_login
+            },
+            oauthClientCreated: !!userOAuthClient,
+            calendarApiTest: 'FAILED',
+            calendarError: calendarError.message
+          }
+        });
+      }
+    } else {
+      res.json({
+        success: false,
+        debug: {
+          sessionUser: req.user,
+          dbUser: {
+            id: user.id,
+            email: user.email,
+            hasAccessToken: !!user.access_token,
+            hasRefreshToken: !!user.refresh_token,
+            tokenExpiry: user.token_expiry,
+            lastLogin: user.last_login
+          },
+          oauthClientCreated: !!userOAuthClient,
+          calendarApiTest: 'SKIPPED - Missing tokens or client'
+        }
+      });
+    }
+    
+  } catch (error) {
+    console.error('Debug endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      sessionUser: req.user
+    });
+  }
+});
+
 app.get('/api/auth/google/callback', async (req, res) => {
   const { code } = req.query;
   
@@ -3296,12 +3435,30 @@ app.get('/api/calendar/events', requireAuth, async (req, res) => {
     // Create user-specific OAuth client
     const userOAuthClient = createUserOAuth2Client(user);
     
+    console.log('🔐 DEBUG AUTH - User tokens:', {
+      hasAccessToken: !!user.access_token,
+      hasRefreshToken: !!user.refresh_token,
+      tokenExpiry: user.token_expiry,
+      accessTokenLength: user.access_token ? user.access_token.length : 0
+    });
+    
     if (!userOAuthClient) {
+      console.log('❌ OAuth client creation failed');
       return res.status(500).json({
         success: false,
         error: 'Google authentication not configured'
       });
     }
+    
+    console.log('✅ OAuth client created successfully');
+    
+    // Check if credentials are properly set
+    const credentials = userOAuthClient.credentials;
+    console.log('🔑 OAuth credentials:', {
+      hasAccessToken: !!credentials.access_token,
+      hasRefreshToken: !!credentials.refresh_token,
+      accessTokenPrefix: credentials.access_token ? credentials.access_token.substring(0, 20) + '...' : 'none'
+    });
     
     const calendar = google.calendar({ version: 'v3', auth: userOAuthClient });
     const view = req.query.view || 'week';
