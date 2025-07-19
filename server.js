@@ -4150,12 +4150,13 @@ app.get('/', requireAuth, (req, res) => {
           text-overflow: ellipsis;
         }
         
-        .user-email {
+        .user-position {
           color: rgba(255, 255, 255, 0.7);
           font-size: 12px;
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
+          font-style: italic;
         }
         
         .logout-btn {
@@ -6267,6 +6268,59 @@ app.get('/', requireAuth, (req, res) => {
           color: var(--text-muted);
         }
         
+        /* Glassmorphism Header for Chat and Profile */
+        .glassmorphism-header {
+          background: var(--glass-bg);
+          backdrop-filter: blur(20px);
+          border: 1px solid var(--glass-border);
+          border-radius: 20px;
+          padding: 24px 32px;
+          margin-bottom: 24px;
+          box-shadow: var(--shadow-soft);
+          text-align: center;
+          position: relative;
+          overflow: hidden;
+        }
+        
+        .glassmorphism-header::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: -50%;
+          width: 200%;
+          height: 100%;
+          background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+          animation: shimmer 3s infinite;
+          pointer-events: none;
+        }
+        
+        @keyframes shimmer {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
+        }
+        
+        .glassmorphism-header h2 {
+          margin: 0 0 8px 0;
+          color: var(--text-primary);
+          font-size: 28px;
+          font-weight: 700;
+          background: linear-gradient(135deg, var(--primary-gradient-start), var(--primary-gradient-end));
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          background-clip: text;
+          position: relative;
+          z-index: 1;
+        }
+        
+        .glassmorphism-header p {
+          margin: 0;
+          color: var(--text-secondary);
+          font-size: 16px;
+          opacity: 0.9;
+          position: relative;
+          z-index: 1;
+        }
+        
         /* Enhanced Calendar Components */
         .calendar-controls {
           background: var(--glass-bg);
@@ -7976,7 +8030,7 @@ app.get('/', requireAuth, (req, res) => {
               </div>
               <div class="user-details">
                 <div class="user-name" id="userName">Cargando...</div>
-                <div class="user-email" id="userEmail">usuario@intothecom.com</div>
+                <div class="user-position" id="userPosition">Cargo no definido</div>
               </div>
               <button class="logout-btn" onclick="logout()" title="Cerrar sesión">
                 🚪
@@ -7995,10 +8049,6 @@ app.get('/', requireAuth, (req, res) => {
             <a href="#" class="nav-item" data-tab="funnel">
               <span class="nav-icon">⬇</span>
               <span>Embudo</span>
-            </a>
-            <a href="#" class="nav-item" data-tab="sync">
-              <span class="nav-icon">⟲</span>
-              <span>Sincronización</span>
             </a>
             <a href="#" class="nav-item" data-tab="finanzas">
               <span class="nav-icon">$</span>
@@ -8127,13 +8177,6 @@ app.get('/', requireAuth, (req, res) => {
               </div>
             </div>
             
-            <div id="sync-tab" class="tab-content" style="display: none;">
-              <h3>Sincronización con Google Calendar</h3>
-              <div id="syncStatus"></div>
-              <button class="btn btn-primary" onclick="syncContacts()">
-                Sincronizar Ahora
-              </button>
-            </div>
             
             <div id="finanzas-tab" class="tab-content" style="display: none;">
               <div class="finance-container">
@@ -8303,6 +8346,10 @@ app.get('/', requireAuth, (req, res) => {
 
           <!-- Chat Tab -->
           <div id="chat-tab" class="tab-content" style="display: none;">
+            <div class="content-header glassmorphism-header">
+              <h2>💬 Chat IntoTheCom</h2>
+              <p>Comunícate con tu equipo en tiempo real</p>
+            </div>
             <div class="chat-container">
               <!-- Chat Sidebar -->
               <div class="chat-sidebar">
@@ -8897,8 +8944,9 @@ app.get('/', requireAuth, (req, res) => {
               'calendar': 'Calendario',
               'contacts': 'Contactos',
               'funnel': 'Embudo',
-              'sync': 'Sincronización',
-              'finanzas': 'Finanzas'
+              'finanzas': 'Finanzas',
+              'chat': 'Chat',
+              'profile': 'Mi Perfil'
             };
             document.getElementById('pageTitle').textContent = titles[tabId];
             
@@ -9109,6 +9157,9 @@ app.get('/', requireAuth, (req, res) => {
         document.addEventListener('DOMContentLoaded', () => {
           console.log('DOMContentLoaded event fired');
           updateCalendarTitle();
+          
+          // Load user profile for sidebar
+          loadUserInfoForSidebar();
           
           // Check for successful login
           checkLoginSuccess();
@@ -13704,6 +13755,51 @@ app.get('/', requireAuth, (req, res) => {
           }
         }
         
+        // Load user info for sidebar
+        async function loadUserInfoForSidebar() {
+          try {
+            console.log('🔄 Loading user info for sidebar...');
+            const response = await fetch('/api/profile');
+            const result = await response.json();
+            
+            if (result.success) {
+              const profile = result.profile;
+              console.log('✅ User profile loaded for sidebar:', profile);
+              
+              // Update user name
+              const userNameEl = document.getElementById('userName');
+              if (userNameEl) {
+                const displayName = profile.full_name || profile.first_name || 'Usuario';
+                userNameEl.textContent = displayName;
+                console.log('📝 Updated sidebar name:', displayName);
+              }
+              
+              // Update user position/cargo
+              const userPositionEl = document.getElementById('userPosition');
+              if (userPositionEl) {
+                const position = profile.position || 'Cargo no definido';
+                userPositionEl.textContent = position;
+                console.log('💼 Updated sidebar position:', position);
+              }
+              
+              // Update user initials in avatar
+              const userInitialsEl = document.getElementById('userInitials');
+              if (userInitialsEl && profile.first_name) {
+                let initials = profile.first_name.charAt(0).toUpperCase();
+                if (profile.last_name) {
+                  initials += profile.last_name.charAt(0).toUpperCase();
+                }
+                userInitialsEl.textContent = initials;
+                console.log('👤 Updated sidebar initials:', initials);
+              }
+            } else {
+              console.log('ℹ️ No profile data found, using defaults');
+            }
+          } catch (error) {
+            console.error('❌ Error loading user info for sidebar:', error);
+          }
+        }
+        
         // Check for successful login and load calendar automatically
         function checkLoginSuccess() {
           const urlParams = new URLSearchParams(window.location.search);
@@ -14086,8 +14182,8 @@ app.get('/', requireAuth, (req, res) => {
       
       <!-- Profile Tab -->
       <div id="profile-tab" class="tab-content" style="display: none;">
-        <div class="content-header">
-          <h2>Mi Perfil</h2>
+        <div class="content-header glassmorphism-header">
+          <h2>👤 Mi Perfil</h2>
           <p>Gestiona tu información personal y configuraciones</p>
         </div>
         
