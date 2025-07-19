@@ -2658,6 +2658,36 @@ app.get('/api/auth/google/callback', async (req, res) => {
   try {
     const { tokens } = await oAuth2Client.getToken(code);
     oAuth2Client.setCredentials(tokens);
+    
+    // Get user information to verify domain
+    const oauth2 = google.oauth2({ version: 'v2', auth: oAuth2Client });
+    const userInfo = await oauth2.userinfo.get();
+    const userEmail = userInfo.data.email;
+    
+    console.log('🔐 User attempting to authenticate:', userEmail);
+    
+    // Check if user email belongs to @intothecom.com domain
+    if (!userEmail.includes('@intothecom.com') && !userEmail.includes('@intothecom')) {
+      console.log('❌ Access denied: User email does not belong to authorized domain');
+      return res.status(403).send(
+        '<html>' +
+          '<head><title>Access Denied</title></head>' +
+          '<body>' +
+            '<h2>❌ Access Denied</h2>' +
+            '<p>This CRM is restricted to @intothecom.com email addresses only.</p>' +
+            '<p>Please contact your administrator if you believe this is an error.</p>' +
+            '<script>' +
+              'if (window.opener) {' +
+                'window.opener.postMessage({type: "google-auth-error", error: "Access denied: Unauthorized domain"}, "*");' +
+                'setTimeout(function() { window.close(); }, 3000);' +
+              '}' +
+            '</script>' +
+          '</body>' +
+        '</html>'
+      );
+    }
+    
+    console.log('✅ Domain verification passed for:', userEmail);
     storedTokens = tokens;
     
     // Log token details for debugging
@@ -2666,7 +2696,8 @@ app.get('/api/auth/google/callback', async (req, res) => {
       hasRefreshToken: !!tokens.refresh_token,
       tokenType: tokens.token_type,
       expiryDate: tokens.expiry_date,
-      scopes: tokens.scope
+      scopes: tokens.scope,
+      userEmail: userEmail
     });
     
     if (!tokens.refresh_token) {
