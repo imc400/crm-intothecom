@@ -3168,18 +3168,165 @@ app.post('/api/auth/logout', (req, res) => {
   });
 });
 
-// Get current user session info
-app.get('/api/auth/me', (req, res) => {
-  if (req.session && req.session.user) {
+// Get current user session info with calendar authorization status
+app.get('/api/auth/me', requireAuth, async (req, res) => {
+  try {
+    // Get full user data including calendar tokens
+    const userResult = await pool.query(
+      'SELECT id, email, google_id, name, picture, access_token, refresh_token, token_expiry FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    const user = userResult.rows[0];
+    const hasCalendarAuth = !!(user.access_token && user.refresh_token);
+    
     res.json({
       success: true,
-      user: req.session.user
+      user: {
+        id: user.id,
+        email: user.email,
+        google_id: user.google_id,
+        name: user.name,
+        picture: user.picture,
+        hasCalendarAuth: hasCalendarAuth,
+        tokenExpiry: user.token_expiry
+      }
     });
-  } else {
-    res.status(401).json({
+  } catch (error) {
+    console.error('Error getting user info:', error);
+    res.status(500).json({
       success: false,
-      error: 'Not authenticated',
-      needsLogin: true
+      error: 'Failed to get user information'
+    });
+  }
+});
+
+// Google Calendar authorization for individual users
+app.get('/api/auth/google/calendar', requireAuth, async (req, res) => {
+  try {
+    console.log('🗓️ Calendar authorization requested for user:', req.user.email);
+    
+    // Create OAuth client for calendar authorization
+    const client = await createUserOAuth2Client();
+    
+    if (!client) {
+      return res.status(500).json({
+        success: false,
+        error: 'Google authentication not configured'
+      });
+    }
+    
+    // Generate authorization URL with calendar-specific scopes
+    const authUrl = client.generateAuthUrl({
+      access_type: 'offline',
+      scope: SCOPES,
+      prompt: 'consent', // Force consent screen to get refresh token
+      state: `calendar_auth_${req.user.id}` // Include user ID in state
+    });
+    
+    console.log('🔗 Calendar auth URL generated for user:', req.user.email);
+    
+    res.json({
+      success: true,
+      authUrl: authUrl,
+      message: 'Calendar authorization URL generated'
+    });
+    
+  } catch (error) {
+    console.error('Calendar auth URL generation error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate calendar authorization URL'
+    });
+  }
+});
+
+// Google Calendar authorization callback for individual users
+app.get('/api/auth/google/calendar/callback', async (req, res) => {
+  const { code, state } = req.query;
+  
+  console.log('🗓️ Calendar callback received:', { 
+    hasCode: !!code, 
+    state: state 
+  });
+  
+  if (!code) {
+    return res.status(400).json({
+      success: false,
+      error: 'Authorization code not provided'
+    });
+  }
+  
+  // Extract user ID from state
+  const userId = state?.replace('calendar_auth_', '');
+  if (!userId) {
+    return res.status(400).json({
+      success: false,
+      error: 'Invalid state parameter'
+    });
+  }
+  
+  try {
+    // Get user from database
+    const userResult = await pool.query(
+      'SELECT * FROM users WHERE id = $1',
+      [userId]
+    );
+    
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+    
+    const user = userResult.rows[0];
+    console.log('📝 Updating calendar tokens for user:', user.email);
+    
+    // Create OAuth client
+    const client = await createUserOAuth2Client();
+    
+    // Exchange code for tokens
+    const { tokens } = await client.getToken(code);
+    
+    console.log('🔑 Calendar tokens received:', {
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      expiryDate: tokens.expiry_date
+    });
+    
+    // Update user tokens in database
+    await pool.query(`
+      UPDATE users 
+      SET access_token = $1, 
+          refresh_token = $2, 
+          token_expiry = $3,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $4
+    `, [
+      tokens.access_token,
+      tokens.refresh_token,
+      tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+      userId
+    ]);
+    
+    console.log('✅ Calendar tokens updated for user:', user.email);
+    
+    // Redirect back to CRM with success message
+    res.redirect('/?calendar=authorized');
+    
+  } catch (error) {
+    console.error('Calendar authorization error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Calendar authorization failed: ' + error.message
     });
   }
 });
@@ -4083,6 +4230,79 @@ app.get('/', requireAuth, (req, res) => {
         };
         
         window.authenticateGoogle = window.startGoogleAuth;
+        
+        // Calendar authorization functions
+        window.authorizeCalendar = function() {
+          console.log('Calendar authorization requested');
+          fetch('/api/auth/google/calendar')
+            .then(response => response.json())
+            .then(result => {
+              console.log('Calendar auth result:', result);
+              if (result.success && result.authUrl) {
+                console.log('Redirecting to calendar auth URL');
+                window.location.href = result.authUrl;
+              } else {
+                console.error('Calendar auth failed:', result.error);
+                alert('Error al generar URL de autorización: ' + result.error);
+              }
+            })
+            .catch(error => {
+              console.error('Calendar auth error:', error);
+              alert('Error de conexión al solicitar autorización de calendario');
+            });
+        };
+        
+        // Update calendar authorization UI
+        function updateCalendarAuthUI(hasAuth) {
+          console.log('Updating calendar auth UI, hasAuth:', hasAuth);
+          
+          // Update calendar tab to show auth status
+          const calendarGrid = document.querySelector('.calendar-grid');
+          if (calendarGrid && !hasAuth) {
+            calendarGrid.innerHTML = `
+              <div class="auth-prompt">
+                <h3>🗓️ Autoriza tu Google Calendar</h3>
+                <p>Para ver tus eventos de calendario, necesitas autorizar el acceso a tu Google Calendar personal.</p>
+                <button class="btn btn-primary" onclick="authorizeCalendar()">
+                  📅 Autorizar Google Calendar
+                </button>
+              </div>
+            `;
+          }
+          
+          // Show success message if calendar was just authorized
+          const urlParams = new URLSearchParams(window.location.search);
+          if (urlParams.get('calendar') === 'authorized') {
+            showNotification('✅ Google Calendar autorizado correctamente. ¡Cargando eventos...', 'success');
+            // Remove the parameter from URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            // Reload calendar events
+            setTimeout(() => {
+              if (typeof loadCalendarEvents === 'function') {
+                loadCalendarEvents();
+              }
+            }, 1000);
+          }
+        }
+        
+        // Simple notification function
+        function showNotification(message, type = 'info') {
+          const notification = document.createElement('div');
+          notification.className = `notification notification-${type}`;
+          notification.textContent = message;
+          notification.style.cssText = `
+            position: fixed; top: 20px; right: 20px; z-index: 10000;
+            background: ${type === 'success' ? '#4CAF50' : type === 'error' ? '#f44336' : '#2196F3'};
+            color: white; padding: 15px 20px; border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 400px;
+          `;
+          document.body.appendChild(notification);
+          setTimeout(() => {
+            if (notification.parentNode) {
+              notification.parentNode.removeChild(notification);
+            }
+          }, 5000);
+        }
         
         // Disconnect Google Calendar function
         window.disconnectGoogle = function() {
@@ -13647,30 +13867,53 @@ app.get('/', requireAuth, (req, res) => {
           });
         }
         
-        // Get current user info with profile integration
+        // Get current user info with profile integration and calendar auth status
         async function getCurrentUser() {
           try {
-            // Get user profile from our profile API
-            const profileResponse = await fetch('/api/profile');
-            const profileData = await profileResponse.json();
+            // Get user auth info including calendar authorization status
+            const authResponse = await fetch('/api/auth/me');
+            const authData = await authResponse.json();
             
-            if (profileData.success && profileData.profile) {
-              const profile = profileData.profile;
+            if (authData.success && authData.user) {
+              const user = authData.user;
               
-              // Use full profile information
-              currentUser = {
-                email: profile.email,
-                name: profile.full_name || (profile.first_name + ' ' + profile.last_name).trim() || profile.email.split('@')[0],
-                firstName: profile.first_name,
-                lastName: profile.last_name,
-                position: profile.position,
-                profileImage: profile.profile_image_url
-              };
+              // Get user profile from our profile API
+              const profileResponse = await fetch('/api/profile');
+              const profileData = await profileResponse.json();
               
-              // Cache the profile for avatar usage
-              userProfileCache.set(profile.email, profile);
+              if (profileData.success && profileData.profile) {
+                const profile = profileData.profile;
+                
+                // Use full profile information
+                currentUser = {
+                  id: user.id,
+                  email: user.email,
+                  name: profile.full_name || (profile.first_name + ' ' + profile.last_name).trim() || user.name || user.email.split('@')[0],
+                  firstName: profile.first_name,
+                  lastName: profile.last_name,
+                  position: profile.position,
+                  profileImage: profile.profile_image_url || user.picture,
+                  hasCalendarAuth: user.hasCalendarAuth
+                };
+                
+                // Cache the profile for avatar usage
+                userProfileCache.set(profile.email, profile);
+                
+                console.log('✅ Got user profile for chat:', currentUser);
+              } else {
+                // Use auth data as fallback
+                currentUser = {
+                  id: user.id,
+                  email: user.email,
+                  name: user.name || user.email.split('@')[0],
+                  profileImage: user.picture,
+                  hasCalendarAuth: user.hasCalendarAuth
+                };
+              }
               
-              console.log('✅ Got user profile for chat:', currentUser);
+              // Update calendar authorization UI
+              updateCalendarAuthUI(currentUser.hasCalendarAuth);
+              
             } else {
               // Fallback to Google Auth
               const authResponse = await fetch('/api/auth/status');
