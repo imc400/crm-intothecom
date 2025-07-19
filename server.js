@@ -7,6 +7,9 @@ const path = require('path');
 const multer = require('multer');
 const http = require('http');
 const socketIo = require('socket.io');
+const session = require('express-session');
+const pgSession = require('connect-pg-simple')(session);
+const { v4: uuidv4 } = require('uuid');
 require('dotenv').config();
 
 const app = express();
@@ -20,10 +23,7 @@ const io = socketIo(server, {
 });
 
 // Middleware
-app.use(cors());
-app.use(express.json());
-
-// Database connection
+// Database connection first (needed for sessions)
 console.log('Environment:', process.env.NODE_ENV);
 console.log('Database URL exists:', !!process.env.DATABASE_URL);
 console.log('Port:', PORT);
@@ -32,6 +32,31 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
 });
+
+// Configure middleware after pool is created
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
+app.use(express.json());
+
+// Session configuration for multi-user authentication
+app.use(session({
+  store: new pgSession({
+    pool: pool,
+    tableName: 'session'
+  }),
+  secret: process.env.SESSION_SECRET || 'intothecom-crm-secret-key-2025',
+  resave: false,
+  saveUninitialized: false,
+  rolling: true,
+  cookie: {
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax'
+  }
+}));
 
 // Initialize database
 async function initDatabase() {
@@ -476,6 +501,46 @@ async function initDatabase() {
       console.log('user_profiles table creation error:', error.message);
     }
     
+    // Create users table for multi-user authentication
+    console.log('Creating users table...');
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id SERIAL PRIMARY KEY,
+          email VARCHAR(255) UNIQUE NOT NULL,
+          google_id VARCHAR(255) UNIQUE,
+          access_token TEXT,
+          refresh_token TEXT,
+          token_expiry TIMESTAMP,
+          is_active BOOLEAN DEFAULT true,
+          last_login TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT users_email_domain CHECK (email LIKE '%@intothecom.com')
+        )
+      `);
+      console.log('✅ users table created successfully');
+    } catch (error) {
+      console.log('users table creation error:', error.message);
+    }
+    
+    // Create sessions table for express-session with connect-pg-simple
+    console.log('Creating sessions table...');
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS "session" (
+          "sid" VARCHAR NOT NULL COLLATE "default",
+          "sess" JSON NOT NULL,
+          "expire" TIMESTAMP(6) NOT NULL
+        ) WITH (OIDS=FALSE);
+        ALTER TABLE "session" ADD CONSTRAINT "session_pkey" PRIMARY KEY ("sid") NOT DEFERRABLE INITIALLY IMMEDIATE;
+        CREATE INDEX IF NOT EXISTS "IDX_session_expire" ON "session" ("expire");
+      `);
+      console.log('✅ sessions table created successfully');
+    } catch (error) {
+      console.log('sessions table creation error:', error.message);
+    }
+    
     console.log('Database initialized successfully');
     
     // Force check contact_attachments table
@@ -600,6 +665,91 @@ initDatabase();
 const uploadsDir = path.join(__dirname, 'uploads', 'contacts');
 if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// ===================================
+// AUTHENTICATION MIDDLEWARE
+// ===================================
+
+// Authentication middleware to require login for protected routes
+function requireAuth(req, res, next) {
+  if (req.session && req.session.user) {
+    // User is authenticated
+    req.user = req.session.user;
+    next();
+  } else {
+    // User not authenticated, redirect to login
+    if (req.xhr || req.headers.accept.indexOf('json') > -1) {
+      // API request
+      res.status(401).json({
+        success: false,
+        error: 'Authentication required',
+        needsLogin: true
+      });
+    } else {
+      // Browser request
+      res.redirect('/login');
+    }
+  }
+}
+
+// Middleware to validate IntoTheCom email domain
+function validateIntoTheComDomain(email) {
+  return email && email.toLowerCase().endsWith('@intothecom.com');
+}
+
+// Get or create user in database
+async function getOrCreateUser(googleProfile) {
+  const email = googleProfile.email.toLowerCase();
+  
+  // Validate domain
+  if (!validateIntoTheComDomain(email)) {
+    throw new Error('Only @intothecom.com emails are allowed');
+  }
+  
+  try {
+    // Check if user exists
+    let result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    
+    if (result.rows.length === 0) {
+      // Create new user
+      result = await pool.query(`
+        INSERT INTO users (email, google_id, access_token, refresh_token, token_expiry, last_login)
+        VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+        RETURNING *
+      `, [
+        email,
+        googleProfile.id,
+        googleProfile.access_token,
+        googleProfile.refresh_token,
+        googleProfile.token_expiry
+      ]);
+      
+      console.log('✅ New user created:', email);
+    } else {
+      // Update existing user's tokens and last login
+      result = await pool.query(`
+        UPDATE users 
+        SET google_id = $1, access_token = $2, refresh_token = $3, 
+            token_expiry = $4, last_login = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        WHERE email = $5
+        RETURNING *
+      `, [
+        googleProfile.id,
+        googleProfile.access_token,
+        googleProfile.refresh_token,
+        googleProfile.token_expiry,
+        email
+      ]);
+      
+      console.log('✅ User tokens updated:', email);
+    }
+    
+    return result.rows[0];
+  } catch (error) {
+    console.error('Error in getOrCreateUser:', error);
+    throw error;
+  }
 }
 
 // Configure multer for file uploads
@@ -2674,15 +2824,18 @@ async function storeEventInDatabase(event) {
 
 // Google Calendar Authentication
 const SCOPES = ['https://www.googleapis.com/auth/calendar'];
+// Legacy global OAuth client (will be deprecated in favor of per-user clients)
 let oAuth2Client = null;
 let storedTokens = null;
 
-// Initialize Google OAuth2 client
-function initializeGoogleAuth() {
+// Create OAuth2 client for a specific user
+function createUserOAuth2Client(user = null) {
+  let client;
+  
   if (process.env.NODE_ENV === 'production') {
-    // In production, we need to configure OAuth2 with environment variables
+    // In production, use environment variables
     if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
-      oAuth2Client = new google.auth.OAuth2(
+      client = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID,
         process.env.GOOGLE_CLIENT_SECRET,
         process.env.GOOGLE_REDIRECT_URI || 'https://crm-intothecom-production.up.railway.app/api/auth/google/callback'
@@ -2695,27 +2848,51 @@ function initializeGoogleAuth() {
       const credentials = JSON.parse(fs.readFileSync(CREDENTIALS_PATH, 'utf8'));
       const { client_secret, client_id, redirect_uris } = credentials.installed;
       
-      oAuth2Client = new google.auth.OAuth2(
+      client = new google.auth.OAuth2(
         client_id,
         client_secret,
         redirect_uris[0]
       );
     }
   }
+  
+  // If user is provided, set their tokens
+  if (client && user && user.access_token) {
+    client.setCredentials({
+      access_token: user.access_token,
+      refresh_token: user.refresh_token,
+      token_type: 'Bearer',
+      expiry_date: user.token_expiry ? new Date(user.token_expiry).getTime() : null
+    });
+  }
+  
+  return client;
+}
+
+// Legacy function for backward compatibility
+function initializeGoogleAuth() {
+  // This now uses the per-user client system
+  oAuth2Client = createUserOAuth2Client();
 }
 
 // Google Auth will be initialized in initDatabase() function
 
-// Google Authentication endpoints
+// ===================================
+// MULTI-USER GOOGLE AUTHENTICATION ENDPOINTS
+// ===================================
+
+// Start Google OAuth flow (per-user)
 app.get('/api/auth/google', (req, res) => {
-  if (!oAuth2Client) {
+  const client = createUserOAuth2Client();
+  
+  if (!client) {
     return res.status(500).json({
       success: false,
       error: 'Google authentication not configured'
     });
   }
 
-  const authUrl = oAuth2Client.generateAuthUrl({
+  const authUrl = client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
     scope: SCOPES,
@@ -2725,6 +2902,84 @@ app.get('/api/auth/google', (req, res) => {
     success: true,
     authUrl: authUrl
   });
+});
+
+// Google OAuth callback (per-user)
+app.get('/api/auth/google/callback', async (req, res) => {
+  const { code } = req.query;
+  
+  if (!code) {
+    return res.status(400).json({
+      success: false,
+      error: 'Authorization code not provided'
+    });
+  }
+  
+  const client = createUserOAuth2Client();
+  
+  if (!client) {
+    return res.status(500).json({
+      success: false,
+      error: 'Google authentication not configured'
+    });
+  }
+  
+  try {
+    // Exchange authorization code for tokens
+    const { tokens } = await client.getToken(code);
+    client.setCredentials(tokens);
+    
+    // Get user profile from Google
+    const oauth2 = google.oauth2({
+      auth: client,
+      version: 'v2'
+    });
+    
+    const { data: profile } = await oauth2.userinfo.get();
+    
+    // Validate domain
+    if (!validateIntoTheComDomain(profile.email)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied. Only @intothecom.com emails are allowed.'
+      });
+    }
+    
+    // Create Google profile object for user creation
+    const googleProfile = {
+      id: profile.id,
+      email: profile.email,
+      name: profile.name,
+      picture: profile.picture,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      token_expiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null
+    };
+    
+    // Create or update user in database
+    const user = await getOrCreateUser(googleProfile);
+    
+    // Store user in session
+    req.session.user = {
+      id: user.id,
+      email: user.email,
+      google_id: user.google_id,
+      name: profile.name,
+      picture: profile.picture
+    };
+    
+    console.log('✅ User authenticated:', user.email);
+    
+    // Redirect to main app
+    res.redirect('/?login=success');
+    
+  } catch (error) {
+    console.error('OAuth callback error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Authentication failed: ' + error.message
+    });
+  }
 });
 
 app.get('/api/auth/google/callback', async (req, res) => {
