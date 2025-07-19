@@ -2929,6 +2929,8 @@ app.get('/api/auth/status', async (req, res) => {
     res.json({
       success: true,
       authenticated: isAuthenticated,
+      isAuthenticated: isAuthenticated,
+      accessToken: isAuthenticated && storedTokens ? storedTokens.access_token : null,
       message: isAuthenticated ? 'Google Calendar conectado' : 'Google Calendar desconectado'
     });
   } catch (error) {
@@ -6687,11 +6689,12 @@ app.get('/', (req, res) => {
         
         .chat-container {
           display: flex;
-          height: calc(100vh - 120px);
+          height: 85vh;
           background: var(--bg-primary);
           border-radius: 12px;
           overflow: hidden;
           box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+          margin-top: 20px;
         }
         
         /* Chat Sidebar */
@@ -7031,7 +7034,7 @@ app.get('/', (req, res) => {
         
         @media (max-width: 600px) {
           .chat-container {
-            height: calc(100vh - 100px);
+            height: 80vh;
           }
           
           .chat-sidebar {
@@ -12451,25 +12454,27 @@ app.get('/', (req, res) => {
           // Set up socket event listeners
           setupSocketListeners();
           
-          // Load user info from auth
-          getCurrentUser();
+          // Wait for socket to connect before proceeding
+          socket.on('connect', () => {
+            console.log('🔌 Socket connected, loading chat data...');
+            
+            // Load user info from auth
+            getCurrentUser();
+            
+            // Load channels
+            loadChannels();
+            
+            // Load messages for default channel
+            loadMessages(currentChannel.id);
+          });
           
-          // Load channels
-          loadChannels();
-          
-          // Load messages for default channel
-          loadMessages(currentChannel.id);
-          
-          console.log('✅ Chat system initialized');
+          console.log('✅ Chat system initialization started');
         }
         
         // Set up Socket.io event listeners
         function setupSocketListeners() {
           socket.on('connect', () => {
             console.log('🔌 Connected to chat server:', socket.id);
-            if (currentUser.email) {
-              socket.emit('join-chat', currentUser);
-            }
           });
           
           socket.on('disconnect', () => {
@@ -12495,14 +12500,51 @@ app.get('/', (req, res) => {
           });
         }
         
-        // Get current user info
+        // Get current user info from Google Auth
         async function getCurrentUser() {
           try {
-            // For now, use a placeholder until we integrate with auth
-            currentUser = {
-              email: 'user@intothecom.com',
-              name: 'Usuario'
-            };
+            // Try to get user info from Google Auth API
+            const response = await fetch('/api/auth/status');
+            const authData = await response.json();
+            
+            console.log('🔍 Auth data received:', authData);
+            
+            if (authData.success && authData.authenticated) {
+              // Get user profile from Google
+              try {
+                const profileResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                  headers: {
+                    'Authorization': 'Bearer ' + authData.accessToken
+                  }
+                });
+                
+                if (profileResponse.ok) {
+                  const profile = await profileResponse.json();
+                  currentUser = {
+                    email: profile.email,
+                    name: profile.name || profile.email.split('@')[0]
+                  };
+                  console.log('✅ Got Google profile:', currentUser);
+                } else {
+                  throw new Error('Failed to get profile');
+                }
+              } catch (profileError) {
+                console.warn('Could not get Google profile, using fallback:', profileError);
+                // Fallback to a generic user
+                currentUser = {
+                  email: 'usuario@intothecom.com',
+                  name: 'Usuario IntoTheCom'
+                };
+              }
+            } else {
+              // Not authenticated, use fallback
+              currentUser = {
+                email: 'usuario@intothecom.com',
+                name: 'Usuario IntoTheCom'
+              };
+            }
+            
+            console.log('📧 Current chat user:', currentUser);
             
             // Update UI
             const userNameEl = document.getElementById('chatUserName');
@@ -12512,10 +12554,16 @@ app.get('/', (req, res) => {
             
             // Join chat with user info
             if (socket && socket.connected) {
+              console.log('📧 Joining chat with user:', currentUser);
               socket.emit('join-chat', currentUser);
             }
           } catch (error) {
             console.error('Error getting current user:', error);
+            // Fallback user
+            currentUser = {
+              email: 'usuario@intothecom.com',
+              name: 'Usuario IntoTheCom'
+            };
           }
         }
         
@@ -12671,10 +12719,43 @@ app.get('/', (req, res) => {
         // Send a chat message
         function sendChatMessage() {
           const input = document.getElementById('chatMessageInput');
-          if (!input) return;
+          if (!input) {
+            console.error('❌ Chat input not found');
+            return;
+          }
           
           const text = input.value.trim();
-          if (!text) return;
+          if (!text) {
+            console.log('⚠️ No message text');
+            return;
+          }
+          
+          // Initialize chat if not already done
+          if (!socket) {
+            console.log('🔄 Socket not initialized, initializing chat...');
+            initializeChat();
+            // Wait for socket to initialize and then try again
+            setTimeout(() => sendChatMessage(), 2000);
+            return;
+          }
+          
+          if (!socket.connected) {
+            console.log('⚠️ Socket not connected, trying to reconnect...');
+            socket.connect();
+            setTimeout(() => sendChatMessage(), 2000);
+            return;
+          }
+          
+          // Validate we have required data
+          if (!currentChannel || !currentChannel.id) {
+            console.error('❌ No current channel selected');
+            return;
+          }
+          
+          if (!currentUser || !currentUser.email) {
+            console.error('❌ No current user available');
+            return;
+          }
           
           const messageData = {
             channelId: currentChannel.id,
@@ -12683,6 +12764,8 @@ app.get('/', (req, res) => {
             text: text,
             type: 'text'
           };
+          
+          console.log('📤 Sending message:', messageData);
           
           // Send via Socket.io
           socket.emit('new-message', messageData);
@@ -12769,15 +12852,19 @@ app.get('/', (req, res) => {
           }
         }
         
-        // Add chat initialization to tab switching
-        const originalShowTab = showTab;
-        function showTab(tabName) {
-          originalShowTab(tabName);
-          
-          if (tabName === 'chat') {
-            setTimeout(initializeChatTab, 100);
+        // Add to window for global access
+        window.initializeChatTab = initializeChatTab;
+        
+        // Auto-initialize chat when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+          // Add event listeners to chat tab
+          const chatTab = document.querySelector('[data-tab="chat"]');
+          if (chatTab) {
+            chatTab.addEventListener('click', function() {
+              setTimeout(initializeChatTab, 200);
+            });
           }
-        }
+        });
         
       </script>
       
