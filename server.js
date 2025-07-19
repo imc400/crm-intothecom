@@ -2842,17 +2842,15 @@ async function storeEventInDatabase(event) {
   
   try {
     await pool.query(
-      `INSERT INTO events (google_event_id, summary, description, start_time, end_time, attendees_count, attendees_emails, hangout_link) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO events (google_event_id, summary, start_time, end_time, attendees_count, notes) 
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (google_event_id) DO UPDATE SET
        summary = EXCLUDED.summary,
-       description = EXCLUDED.description,
        start_time = EXCLUDED.start_time,
        end_time = EXCLUDED.end_time,
        attendees_count = EXCLUDED.attendees_count,
-       attendees_emails = EXCLUDED.attendees_emails,
-       hangout_link = EXCLUDED.hangout_link`,
-      [eventId, summary, description, startTime, endTime, attendeesCount, attendeesEmails, hangoutLink]
+       notes = EXCLUDED.notes`,
+      [eventId, summary, startTime, endTime, attendeesCount, description]
     );
   } catch (error) {
     console.error('Error storing event in database:', eventId, error);
