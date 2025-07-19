@@ -4259,15 +4259,13 @@ app.get('/', requireAuth, (req, res) => {
           // Update calendar tab to show auth status
           const calendarGrid = document.querySelector('.calendar-grid');
           if (calendarGrid && !hasAuth) {
-            calendarGrid.innerHTML = `
-              <div class="auth-prompt">
-                <h3>🗓️ Autoriza tu Google Calendar</h3>
-                <p>Para ver tus eventos de calendario, necesitas autorizar el acceso a tu Google Calendar personal.</p>
-                <button class="btn btn-primary" onclick="authorizeCalendar()">
-                  📅 Autorizar Google Calendar
-                </button>
-              </div>
-            `;
+            calendarGrid.innerHTML = '<div class="auth-prompt">' +
+              '<h3>🗓️ Autoriza tu Google Calendar</h3>' +
+              '<p>Para ver tus eventos de calendario, necesitas autorizar el acceso a tu Google Calendar personal.</p>' +
+              '<button class="btn btn-primary" onclick="authorizeCalendar()">' +
+                '📅 Autorizar Google Calendar' +
+              '</button>' +
+            '</div>';
           }
           
           // Show success message if calendar was just authorized
